@@ -23,6 +23,14 @@ struct MetaEntry {
     double timestamp;
 };
 
+struct SlotCacheStats {
+    std::atomic<uint64_t> hits{0};
+    std::atomic<uint64_t> misses{0};
+    std::atomic<uint64_t> saves{0};
+    std::atomic<uint64_t> restore_failures{0};
+    std::atomic<double> total_restore_time_ms{0.0};
+};
+
 class SlotCacheManager {
 public:
     SlotCacheManager(const std::string& cache_dir);
@@ -48,10 +56,19 @@ public:
 
     // Scan meta files for a model
     std::vector<MetaEntry> scan_meta_files(const std::string& model_dir);
+    
+    // Stats accessors
+    uint64_t get_hits() const { return stats_.hits.load(); }
+    uint64_t get_misses() const { return stats_.misses.load(); }
+    uint64_t get_saves() const { return stats_.saves.load(); }
+    uint64_t get_restore_failures() const { return stats_.restore_failures.load(); }
+    double get_hit_rate() const;
+    double get_avg_restore_time() const;
 
 private:
     std::string cache_dir_;
     mutable std::mutex cache_mutex_;
+    SlotCacheStats stats_;
 
     // Compute LCP (Longest Common Prefix) ratio
     double compute_lcp_ratio(const std::vector<std::string>& blocks1, 

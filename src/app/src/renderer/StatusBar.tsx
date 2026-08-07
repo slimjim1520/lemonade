@@ -16,6 +16,9 @@ interface SystemStats {
   npu_percent: number | null;
   slot_cache_gb: number | null;
   disk_total_gb: number | null;
+  slot_cache_hit_rate?: number | null;
+  slot_cache_hits?: number | null;
+  slot_cache_misses?: number | null;
 }
 
 const StatusBar: React.FC = () => {
@@ -78,6 +81,9 @@ const StatusBar: React.FC = () => {
           npu_percent: stats.npu_percent ?? null,
           slot_cache_gb: stats.slot_cache_gb ?? null,
           disk_total_gb: stats.disk_total_gb ?? null,
+          slot_cache_hit_rate: stats.slot_cache_hit_rate ?? null,
+          slot_cache_hits: stats.slot_cache_hits ?? null,
+          slot_cache_misses: stats.slot_cache_misses ?? null,
         });
       }
     } catch {
@@ -237,7 +243,11 @@ const StatusBar: React.FC = () => {
         <div className="status-bar-item">
           <span className="status-bar-label status-bar-label-long">CACHE:</span>
           <span className="status-bar-label status-bar-label-short">CACHE:</span>
-          <span className="status-bar-value">{formatCacheStats(systemStats.slot_cache_gb, systemStats.disk_total_gb)}</span>
+          <span className="status-bar-value">
+            {formatCacheStats(systemStats.slot_cache_gb, systemStats.disk_total_gb)}
+            {systemStats.slot_cache_hit_rate !== null && systemStats.slot_cache_hit_rate !== undefined && 
+             ` (${(systemStats.slot_cache_hit_rate * 100).toFixed(0)}% hit)`}
+          </span>
         </div>
       )}
     </div>

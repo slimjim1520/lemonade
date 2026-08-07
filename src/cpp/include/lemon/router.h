@@ -68,6 +68,9 @@ public:
     // CloudServer instances with a credential source. Pointer (not
     // ownership) — Server owns the registry.
     void set_cloud_registry(CloudProviderRegistry* registry);
+    
+    // Accessor for slot cache manager (for stats)
+    SlotCacheManager* get_slot_cache_manager() { return slot_cache_manager_.get(); }
 
     // allow_reload_on_option_change: intended for explicit /load callers only.
     // Auto-load callers (inference-triggered) should leave this false so they
@@ -202,6 +205,7 @@ private:
     std::unique_ptr<GlobalVramMonitor> vram_monitor_;
     std::unique_ptr<EvictionEngine> eviction_engine_;
     std::unique_ptr<SuspendInhibitor> suspend_inhibitor_;
+    std::unique_ptr<SlotCacheManager> slot_cache_manager_;
 
     // Helper methods for multi-model management
     WrappedServer* find_server_by_model_name(const std::string& model_name) const;

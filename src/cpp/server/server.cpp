@@ -6066,6 +6066,16 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
             
             stats["slot_cache_gb"] = cache_size_gb;
             stats["disk_total_gb"] = total_gb;
+            
+            // Add cache performance metrics if slot_cache_manager_ is available
+            if (router_.get_slot_cache_manager()) {
+                auto* cache_mgr = router_.get_slot_cache_manager();
+                stats["slot_cache_hits"] = cache_mgr->get_hits();
+                stats["slot_cache_misses"] = cache_mgr->get_misses();
+                stats["slot_cache_hit_rate"] = cache_mgr->get_hit_rate();
+                stats["slot_cache_avg_restore_ms"] = cache_mgr->get_avg_restore_time();
+                stats["slot_cache_saves"] = cache_mgr->get_saves();
+            }
         } else {
             // Don't show cache stats when using default (not configured)
             stats["slot_cache_gb"] = nlohmann::json();

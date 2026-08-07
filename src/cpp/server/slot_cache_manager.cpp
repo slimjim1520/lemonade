@@ -83,6 +83,13 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
         }
     }
     
+    // Track stats
+    if (!best_key.empty()) {
+        stats_.hits.fetch_add(1);
+    } else {
+        stats_.misses.fetch_add(1);
+    }
+    
     return {best_key, best_ratio};
 }
 
@@ -268,6 +275,19 @@ std::vector<std::string> SlotCacheManager::prompt_to_word_blocks(const std::stri
     }
     
     return blocks;
+}
+
+double SlotCacheManager::get_hit_rate() const {
+    uint64_t hits = stats_.hits.load();
+    uint64_t misses = stats_.misses.load();
+    uint64_t total = hits + misses;
+    return (total > 0) ? static_cast<double>(hits) / total : 0.0;
+}
+
+double SlotCacheManager::get_avg_restore_time() const {
+    uint64_t hits = stats_.hits.load();
+    double total_time = stats_.total_restore_time_ms.load();
+    return (hits > 0) ? total_time / hits : 0.0;
 }
 
 } // namespace lemon

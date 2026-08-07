@@ -15,6 +15,8 @@
 #include "lemon/error_types.h"
 #include "lemon/recipe_options.h"
 #include "lemon/auto_tune.h"
+#include "lemon/slot_cache_manager.h"
+#include "lemon/slot_cache_guard.h"
 #include "telemetry.h"
 #include <algorithm>
 #include <condition_variable>
@@ -66,6 +68,7 @@ Router::Router(RuntimeConfig* config, ModelManager* model_manager, BackendManage
     vram_monitor_ = std::make_unique<GlobalVramMonitor>();
     eviction_engine_ = std::make_unique<EvictionEngine>(this, vram_monitor_.get());
     suspend_inhibitor_ = create_suspend_inhibitor();
+    slot_cache_manager_ = std::make_unique<SlotCacheManager>(config_->slot_cache_dir());
 
     // Always start the monitor/engine threads; they are cheap no-ops until the
     // user opts in. The monitor skips the VRAM poll when auto_evict is disabled,
@@ -1385,6 +1388,80 @@ json Router::chat_completion(const json& request, std::atomic<bool>* cancel) {
             }
             
             // Slot cache integration - check if caching is enabled for this model
+            const RecipeOptions& options = server->get_recipe_options();
+            bool slot_cache_enabled = options.get_option("slot_cache_enabled", false);
+            
+            int slot_id = -1;
+            std::string context_key;
+            std::unique_ptr<SlotSaveGuard> save_guard;
+            
+            if (slot_cache_enabled && slot_cache_manager_ && supports_capability<ISlotsServer>(server)) {
+                auto* llamacpp_server = dynamic_cast<LlamaCppServer*>(server);
+                if (llamacpp_server) {
+                    // Extract prompt from request
+                    std::string prompt = slot_cache_manager_->extract_prompt_for_similarity(request);
+                    
+                    // Compute word blocks
+                    int words_per_block = options.get_option("words_per_block", 100);
+                    auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
+                    
+                    // Check if "big" request
+                    int word_count = prompt_blocks.size() * words_per_block;
+                    int big_threshold = options.get_option("big_request_word_threshold", 500);
+                    bool is_big = word_count > big_threshold;
+                    
+                    std::string model_name = server->get_model_name();
+                    std::string recipe_fingerprint = options.to_log_string();
+                    double lcp_threshold = options.get_option("lcp_threshold", 0.6);
+                    
+                    // Find best cache candidate (LCP-based matching)
+                    auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
+                        model_name, recipe_fingerprint, prompt_blocks, lcp_threshold);
+                    
+                    // Get available slot
+                    json slots = server->get_slots();
+                    if (slots.is_array() && !slots.empty()) {
+                        slot_id = slots[0].value("id", -1);
+                    }
+                    
+                    if (slot_id >= 0) {
+                        if (!restore_key.empty() && ratio >= lcp_threshold) {
+                            // CACHE HIT - attempt restore
+                            std::string cache_dir = config_->slot_cache_dir() + "/" + model_name;
+                            if (llamacpp_server->restore_slot(slot_id, restore_key, cache_dir)) {
+                                context_key = restore_key;
+                                llamacpp_server->register_slot_assignment(slot_id, context_key);
+                                LOG(INFO, "Router") << "Cache HIT: restored slot " << slot_id 
+                                                    << " ratio=" << ratio << std::endl;
+                            } else {
+                                // Restore failed - FAIL THE REQUEST
+                                LOG(ERROR, "Router") << "Cache restore failed for slot " << slot_id << std::endl;
+                                throw std::runtime_error("Failed to restore cached context");
+                            }
+                        }
+                        
+                        if (context_key.empty()) {
+                            // CACHE MISS - create new context key
+                            context_key = llamacpp_server->sha256(
+                                model_name + "_" + recipe_fingerprint + "_" + prompt);
+                            llamacpp_server->register_slot_assignment(slot_id, context_key);
+                            LOG(DEBUG, "Router") << "Cache MISS: new slot " << slot_id << std::endl;
+                        }
+                        
+                        // Inject slot_id into request
+                        request["id_slot"] = slot_id;
+                        request["slot_id"] = slot_id;
+                        
+                        // Create SlotSaveGuard for automatic save on completion (BIG requests only)
+                        if (is_big) {
+                            int load_version = llamacpp_server->get_slot_context_version(slot_id);
+                            std::string cache_dir = config_->slot_cache_dir() + "/" + model_name;
+                            save_guard = std::make_unique<SlotSaveGuard>(
+                                llamacpp_server, slot_id, context_key, load_version, true);
+                        }
+                    }
+                }
+            }
             
             return server->chat_completion(request);
         });

@@ -73,6 +73,9 @@ private:
     // responses don't leak absolute filesystem paths (and usernames).
     json normalize_response_model(json response, const json& request) const;
     
+    // Get the cache directory for this model
+    std::string get_cache_dir() const;
+    
     // Slot assignment tracking
     mutable std::mutex slot_map_mutex_;
     std::map<int, std::string> slot_context_map_;

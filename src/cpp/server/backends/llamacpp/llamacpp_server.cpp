@@ -696,7 +696,28 @@ void LlamaCppServer::unload() {
 }
 
 bool LlamaCppServer::downsize() {
-    LOG(INFO, "LlamaCpp") << "Downsizing model by erasing KV cache..." << std::endl;
+    LOG(INFO, "LlamaCpp") << "Downsizing model by saving and erasing KV cache..." << std::endl;
+    
+    // Save all active slots before eviction (proxycache-style)
+    // Each message chain keeps its unique ID, old cache is replaced
+    std::lock_guard<std::mutex> lock(slot_map_mutex_);
+    std::string cache_dir = get_cache_dir();
+    
+    for (const auto& [slot_id, context_key] : slot_context_map_) {
+        if (!context_key.empty()) {
+            // Save with the context_key as filename (replaces old cache for this chain)
+            try {
+                save_slot(slot_id, context_key, cache_dir);
+                LOG(DEBUG, "LlamaCpp") << "Saved slot " << slot_id 
+                                       << " key=" << context_key.substr(0, 16) << std::endl;
+            } catch (const std::exception& e) {
+                LOG(WARNING, "LlamaCpp") << "Failed to save slot " << slot_id 
+                                         << " on downsize: " << e.what() << std::endl;
+            }
+        }
+    }
+    
+    // Proceed with normal downsize (erase slots)
     try {
         json slots = get_slots();
         if (slots.is_array()) {
@@ -791,6 +812,28 @@ bool LlamaCppServer::restore_slot(int slot_id, const std::string& key, const std
         LOG(WARNING, "LlamaCpp") << "Failed to restore slot " << slot_id << ": " << e.what() << std::endl;
         return false;
     }
+}
+
+std::string LlamaCppServer::get_cache_dir() const {
+    // Get global config to find slot_cache_dir
+    if (auto* cfg = RuntimeConfig::global()) {
+        std::string global_cache_dir = cfg->slot_cache_dir();
+        std::string default_cache_dir = cfg->models_dir() + "/slot_cache";
+        
+        // Use global cache dir if explicitly configured
+        if (global_cache_dir != default_cache_dir) {
+            std::string model_name = get_model_name();
+            // Sanitize model name for filesystem
+            std::string safe_model_name = model_name;
+            size_t pos = 0;
+            while ((pos = safe_model_name.find('/', pos)) != std::string::npos) {
+                safe_model_name.replace(pos, 1, "_");
+                pos += 1;
+            }
+            return global_cache_dir + "/" + safe_model_name;
+        }
+    }
+    return "";
 }
 
 bool LlamaCppServer::save_slot(int slot_id, const std::string& key, const std::string& cache_dir) {
