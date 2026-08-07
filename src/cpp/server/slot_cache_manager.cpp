@@ -16,14 +16,14 @@ SlotCacheManager::SlotCacheManager(const std::string& cache_dir)
     : cache_dir_(cache_dir) {}
 
 std::string SlotCacheManager::sha256(const std::string& input) const {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256_ctx;
-    SHA256_Init(&sha256_ctx);
-    SHA256_Update(&sha256_ctx, input.c_str(), input.size());
-    SHA256_Final(hash, &sha256_ctx);
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_len = 0;
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    EVP_Digest(ctx, EVP_sha256(), input.c_str(), input.size(), hash, &hash_len);
+    EVP_MD_CTX_free(ctx);
     
     std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+    for (unsigned int i = 0; i < hash_len; i++) {
         ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
     }
     return ss.str();
