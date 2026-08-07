@@ -132,7 +132,7 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
       try {
         const [modelResponse, configResponse] = await Promise.all([
           serverFetch(`/models/${encodeURIComponent(model)}`),
-          serverFetch('/v1/config')
+          serverFetch('/internal/config')
         ]);
         
         if (!modelResponse.ok) {
