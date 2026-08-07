@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <atomic>
 #include <filesystem>
 #include "nlohmann/json.hpp"
 
