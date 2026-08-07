@@ -513,6 +513,65 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     );
   };
 
+  const renderSlotCacheRamField = (key: string) => {
+    const def = getOptionDefinition(key);
+    if (!def || def.type !== 'numeric') return null;
+
+    const value = getOptionValue<number>(key);
+    if (value === undefined) return null;
+
+    const displayValue = numericDrafts[key] ?? String(value);
+    const min = def.min ?? 0;
+    const max = def.max ?? 65536;
+    const step = def.step ?? 512;
+
+    const marks = [0, 2048, 4096, 8192, 16384, 32768, 65536].filter(v => v >= min && v <= max);
+
+    return (
+      <div className="form-section" key={key}>
+        <label className="form-label" title={def.description}>{def.label.toLowerCase()}</label>
+        <div className="context-size-controls">
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(e) => {
+              clearNumericDraft(key);
+              handleNumericChange(key, Number(e.target.value));
+            }}
+            className="context-size-slider"
+            aria-label="Slot cache RAM"
+          />
+          <input
+            type="text"
+            value={displayValue}
+            onChange={(e) => {
+              setNumericDrafts(prev => ({ ...prev, [key]: e.target.value }));
+            }}
+            onBlur={() => {
+              const draftValue = numericDrafts[key];
+              if (draftValue !== undefined) {
+                commitNumericDraft(key, draftValue);
+              }
+              clearNumericDraft(key);
+            }}
+            className="form-input context-size-input"
+            placeholder="auto"
+            inputMode="numeric"
+          />
+          <span className="context-size-unit">MB</span>
+        </div>
+        <div className="context-size-scale" aria-hidden="true">
+          {marks.map(m => (
+            <span key={m}>{m === 0 ? '0' : m >= 1024 ? `${m / 1024}GB` : `${m}MB`}</span>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // Render a numeric input field
   const renderNumericField = (key: string) => {
     const def = getOptionDefinition(key);
@@ -520,6 +579,11 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
 
     if (key === 'ctxSize' && modelInfo?.max_context_window) {
       return renderContextSizeField(key);
+    }
+
+    // Render slot cache RAM with slider + input
+    if (key === 'slotCacheRam' && isSlotCacheConfigured && isSlotCacheEnabled) {
+      return renderSlotCacheRamField(key);
     }
 
     const value = getOptionValue<number>(key);
