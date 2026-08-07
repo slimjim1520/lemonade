@@ -6046,6 +6046,7 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
     try {
         std::string cache_dir = config_->models_dir() + "/slot_cache";
         double cache_size_gb = 0.0;
+        double total_gb = 0.0;
         
         if (std::filesystem::exists(cache_dir)) {
             for (const auto& entry : std::filesystem::recursive_directory_iterator(cache_dir)) {
@@ -6053,13 +6054,13 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
                     cache_size_gb += entry.file_size() / (1024.0 * 1024.0 * 1024.0);
                 }
             }
+            
+            // Get total disk space for the drive containing the cache directory
+            std::filesystem::space_info space = std::filesystem::space(cache_dir);
+            total_gb = space.capacity / (1024.0 * 1024.0 * 1024.0);
         }
         
         stats["slot_cache_gb"] = cache_size_gb;
-        
-        // Get total disk space for the drive containing the cache directory
-        std::filesystem::space_info space = std::filesystem::space(cache_dir);
-        double total_gb = space.capacity / (1024.0 * 1024.0 * 1024.0);
         stats["disk_total_gb"] = total_gb;
         
     } catch (const std::exception& e) {
