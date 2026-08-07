@@ -1,6 +1,6 @@
 #include "lemon/slot_cache_guard.h"
-#include "backends/llamacpp/llamacpp_server.h"
-#include "utils/logger.h"
+#include "lemon/backends/llamacpp/llamacpp_server.h"
+#include "lemon/utils/logger.h"
 
 namespace lemon {
 
