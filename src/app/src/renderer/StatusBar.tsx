@@ -232,7 +232,8 @@ const StatusBar: React.FC = () => {
           <span className="status-bar-value">{formatPercent(systemStats.npu_percent)}</span>
         </div>
       )}
-      {systemStats.slot_cache_gb !== null && systemStats.disk_total_gb !== null && (
+      {systemStats.slot_cache_gb !== null && systemStats.slot_cache_gb !== undefined && 
+       systemStats.disk_total_gb !== null && systemStats.disk_total_gb !== undefined && (
         <div className="status-bar-item">
           <span className="status-bar-label status-bar-label-long">CACHE:</span>
           <span className="status-bar-label status-bar-label-short">CACHE:</span>

@@ -96,6 +96,7 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
   const [exportError, setExportError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isModelNameCopied, setIsModelNameCopied] = useState(false);
+  const [isSlotCacheConfigured, setIsSlotCacheConfigured] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const modelNameCopyTimeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -105,6 +106,7 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     let isMounted = true;
     setNumericDrafts({});
     setIsModelNameCopied(false);
+    setIsSlotCacheConfigured(false);
     if (modelNameCopyTimeoutIdRef.current) {
       clearTimeout(modelNameCopyTimeoutIdRef.current);
       modelNameCopyTimeoutIdRef.current = null;
@@ -128,31 +130,43 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
       }
 
       try {
-        const response = await serverFetch(`/models/${encodeURIComponent(model)}`);
-        if (!response.ok) {
-          throw new Error(`Failed to load model options (${response.status})`);
+        const [modelResponse, configResponse] = await Promise.all([
+          serverFetch(`/models/${encodeURIComponent(model)}`),
+          serverFetch('/v1/config')
+        ]);
+        
+        if (!modelResponse.ok) {
+          throw new Error(`Failed to load model options (${modelResponse.status})`);
         }
-        const data = await response.json();
+        const modelData = await modelResponse.json();
 
         if (!isMounted) return;
 
         setModelName(model);
-        setModelInfo({ ...data });
+        setModelInfo({ ...modelData });
 
-        const checkpoint = typeof data.checkpoint === 'string' ? data.checkpoint : '';
+        const checkpoint = typeof modelData.checkpoint === 'string' ? modelData.checkpoint : '';
         const repoId = checkpoint.replace(/:.+$/, '');
-        const registrySource = data.registry_source
-          ?? (data.source === 'modelscope' || data.source === 'huggingface'
-            ? data.source
+        const registrySource = modelData.registry_source
+          ?? (modelData.source === 'modelscope' || modelData.source === 'huggingface'
+            ? modelData.source
             : 'huggingface');
         const registryUrl = registrySource === 'modelscope'
           ? `https://modelscope.cn/models/${repoId}/summary`
           : `https://huggingface.co/${repoId}`;
         setModelUrl(checkpoint ? registryUrl : '');
 
-        const recipe = data.recipe as string;
-        const recipeOptions = data.recipe_options ?? {};
+        const recipe = modelData.recipe as string;
+        const recipeOptions = modelData.recipe_options ?? {};
         setOptions(apiToRecipeOptions(recipe, recipeOptions));
+
+        // Check if slot cache is configured
+        if (configResponse.ok) {
+          const configData = await configResponse.json();
+          const hasCustomCacheDir = configData.slot_cache_dir 
+            && configData.slot_cache_dir !== (configData.models_dir + '/slot_cache');
+          setIsSlotCacheConfigured(hasCustomCacheDir);
+        }
       } catch (error) {
         console.error('Failed to load options:', error);
         if (isMounted) {
@@ -666,12 +680,12 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     const isLlamaRecipe = modelInfo?.recipe === 'llamacpp';
     
     return availableOptions.map(key => {
-      // Skip slot cache options (except the enable checkbox) if cache is disabled or not llama recipe
-      if (key.startsWith('slotCache') && key !== 'slotCacheEnabled' && (!isSlotCacheEnabled || !isLlamaRecipe)) {
+      // Skip all slot cache options if not configured or not llama recipe
+      if (key.startsWith('slotCache') && (!isSlotCacheConfigured || !isLlamaRecipe)) {
         return null;
       }
-      // Skip slotCacheEnabled for non-llama recipes
-      if (key === 'slotCacheEnabled' && !isLlamaRecipe) {
+      // Skip slot cache options (except the enable checkbox) if cache is disabled
+      if (key.startsWith('slotCache') && key !== 'slotCacheEnabled' && !isSlotCacheEnabled) {
         return null;
       }
       

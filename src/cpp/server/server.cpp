@@ -6042,26 +6042,35 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
     double npu_percent = get_npu_utilization();
     stats["npu_percent"] = (npu_percent >= 0) ? nlohmann::json(npu_percent) : nlohmann::json();
 
-    // Slot cache stats
+    // Slot cache stats - only show if explicitly configured
     try {
-        std::string cache_dir = config_->slot_cache_dir();
-        double cache_size_gb = 0.0;
-        double total_gb = 0.0;
+        std::string configured_cache_dir = config_->slot_cache_dir();
+        std::string default_cache_dir = config_->models_dir() + "/slot_cache";
         
-        if (std::filesystem::exists(cache_dir)) {
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(cache_dir)) {
-                if (entry.is_regular_file()) {
-                    cache_size_gb += entry.file_size() / (1024.0 * 1024.0 * 1024.0);
+        // Only show cache stats if a custom cache directory is configured
+        if (configured_cache_dir != default_cache_dir) {
+            double cache_size_gb = 0.0;
+            double total_gb = 0.0;
+            
+            if (std::filesystem::exists(configured_cache_dir)) {
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(configured_cache_dir)) {
+                    if (entry.is_regular_file()) {
+                        cache_size_gb += entry.file_size() / (1024.0 * 1024.0 * 1024.0);
+                    }
                 }
+                
+                // Get total disk space for the drive containing the cache directory
+                std::filesystem::space_info space = std::filesystem::space(configured_cache_dir);
+                total_gb = space.capacity / (1024.0 * 1024.0 * 1024.0);
             }
             
-            // Get total disk space for the drive containing the cache directory
-            std::filesystem::space_info space = std::filesystem::space(cache_dir);
-            total_gb = space.capacity / (1024.0 * 1024.0 * 1024.0);
+            stats["slot_cache_gb"] = cache_size_gb;
+            stats["disk_total_gb"] = total_gb;
+        } else {
+            // Don't show cache stats when using default (not configured)
+            stats["slot_cache_gb"] = nlohmann::json();
+            stats["disk_total_gb"] = nlohmann::json();
         }
-        
-        stats["slot_cache_gb"] = cache_size_gb;
-        stats["disk_total_gb"] = total_gb;
         
     } catch (const std::exception& e) {
         LOG(DEBUG, "Server") << "Could not calculate slot cache stats: " << e.what() << std::endl;
