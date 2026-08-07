@@ -16,7 +16,8 @@ public:
 
     LlamaCppServer(const std::string& log_level,
                    ModelManager* model_manager,
-                   BackendManager* backend_manager);
+                   BackendManager* backend_manager,
+                   SlotCacheManager* slot_cache_manager = nullptr);
 
     ~LlamaCppServer() override;
 
@@ -81,6 +82,9 @@ private:
     std::map<int, std::string> slot_context_map_;
     std::map<int, int> slot_context_versions_;
     int load_version_ = 0;
+    
+    // Slot cache manager for LCP-based cache lookup
+    SlotCacheManager* slot_cache_manager_ = nullptr;
 };
 
 namespace llamacpp {

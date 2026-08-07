@@ -8,6 +8,8 @@
 #include "lemon/gguf_capabilities.h"
 #include "lemon/gguf_reader.h"
 #include "lemon/model_manager.h"
+#include "lemon/slot_cache_manager.h"
+#include "lemon/slot_cache_guard.h"
 #include <algorithm>
 #include <filesystem>
 #include <regex>
@@ -262,8 +264,8 @@ InstallParams LlamaCppServer::get_install_params(const std::string& backend, con
     return params;
 }
 
-LlamaCppServer::LlamaCppServer(const std::string& log_level, ModelManager* model_manager, BackendManager* backend_manager)
-    : WrappedServer("llama-server", log_level, model_manager, backend_manager) {
+LlamaCppServer::LlamaCppServer(const std::string& log_level, ModelManager* model_manager, BackendManager* backend_manager, SlotCacheManager* slot_cache_manager)
+    : WrappedServer("llama-server", log_level, model_manager, backend_manager), slot_cache_manager_(slot_cache_manager) {
 }
 
 LlamaCppServer::~LlamaCppServer() {
@@ -745,10 +747,72 @@ json LlamaCppServer::normalize_response_model(json response, const json& request
 }
 
 json LlamaCppServer::chat_completion(const json& request) {
+    json modified_request = request;
+    
+    // Slot cache integration - LCP-based cache restore before inference
+    if (slot_cache_manager_) {
+        const RecipeOptions& options = get_recipe_options();
+        json slot_cache_enabled_json = options.get_option("slot_cache_enabled");
+        bool slot_cache_enabled = slot_cache_enabled_json.is_boolean() ? slot_cache_enabled_json.get<bool>() : false;
+        
+        if (slot_cache_enabled) {
+            std::string prompt = slot_cache_manager_->extract_prompt_for_similarity(request);
+            
+            json wpb_json = options.get_option("words_per_block");
+            int words_per_block = wpb_json.is_number_integer() ? wpb_json.get<int>() : 100;
+            auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
+            
+            int word_count = prompt_blocks.size() * words_per_block;
+            json threshold_json = options.get_option("big_request_word_threshold");
+            int big_threshold = threshold_json.is_number_integer() ? threshold_json.get<int>() : 500;
+            bool is_big = word_count > big_threshold;
+            
+            std::string model_name = get_model_name();
+            std::string recipe_fingerprint = options.to_log_string();
+            json lcp_json = options.get_option("lcp_threshold");
+            double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
+            
+            auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
+                model_name, recipe_fingerprint, prompt_blocks, lcp_threshold);
+            
+            json slots = get_slots();
+            int slot_id = -1;
+            if (slots.is_array() && !slots.empty()) {
+                slot_id = slots[0].value("id", -1);
+            }
+            
+            if (slot_id >= 0) {
+                std::string context_key;
+                
+                if (!restore_key.empty() && ratio >= lcp_threshold) {
+                    std::string cache_dir = get_cache_dir();
+                    if (restore_slot(slot_id, restore_key, cache_dir)) {
+                        context_key = restore_key;
+                        register_slot_assignment(slot_id, context_key);
+                        LOG(INFO, "LlamaCpp") << "Cache HIT: restored slot " << slot_id 
+                                              << " ratio=" << ratio << std::endl;
+                    } else {
+                        LOG(ERROR, "LlamaCpp") << "Cache restore failed for slot " << slot_id << std::endl;
+                        throw std::runtime_error("Failed to restore cached context");
+                    }
+                }
+                
+                if (context_key.empty()) {
+                    context_key = sha256(model_name + "_" + recipe_fingerprint + "_" + prompt);
+                    register_slot_assignment(slot_id, context_key);
+                    LOG(DEBUG, "LlamaCpp") << "Cache MISS: new slot " << slot_id << std::endl;
+                }
+                
+                modified_request["id_slot"] = slot_id;
+                modified_request["slot_id"] = slot_id;
+            }
+        }
+    }
+    
     return normalize_response_model(
         forward_request("/v1/chat/completions",
                         llamacpp::sanitize_tool_schema_limits(
-                            JsonUtils::with_legacy_max_tokens_alias(request))),
+                            JsonUtils::with_legacy_max_tokens_alias(modified_request))),
         request);
 }
 
@@ -876,18 +940,96 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                                                TelemetryCallback telemetry_callback,
                                                std::function<void()> on_stream_complete) {
     std::string body = request_body;
+    std::shared_ptr<SlotSaveGuard> save_guard;
+    
     if (endpoint == "/v1/chat/completions" || endpoint == "/v1/responses") {
         json request = json::parse(request_body, nullptr, false);
         if (!request.is_discarded()) {
             if (endpoint == "/v1/chat/completions") {
                 JsonUtils::add_legacy_max_tokens_alias(request);
             }
+            
+            // Slot cache integration for streaming - LCP-based cache restore
+            if (slot_cache_manager_) {
+                const RecipeOptions& options = get_recipe_options();
+                json slot_cache_enabled_json = options.get_option("slot_cache_enabled");
+                bool slot_cache_enabled = slot_cache_enabled_json.is_boolean() ? slot_cache_enabled_json.get<bool>() : false;
+                
+                if (slot_cache_enabled) {
+                    std::string prompt = slot_cache_manager_->extract_prompt_for_similarity(request);
+                    
+                    json wpb_json = options.get_option("words_per_block");
+                    int words_per_block = wpb_json.is_number_integer() ? wpb_json.get<int>() : 100;
+                    auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
+                    
+                    int word_count = prompt_blocks.size() * words_per_block;
+                    json threshold_json = options.get_option("big_request_word_threshold");
+                    int big_threshold = threshold_json.is_number_integer() ? threshold_json.get<int>() : 500;
+                    bool is_big = word_count > big_threshold;
+                    
+                    std::string model_name = get_model_name();
+                    std::string recipe_fingerprint = options.to_log_string();
+                    json lcp_json = options.get_option("lcp_threshold");
+                    double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
+                    
+                    auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
+                        model_name, recipe_fingerprint, prompt_blocks, lcp_threshold);
+                    
+                    json slots = get_slots();
+                    int slot_id = -1;
+                    if (slots.is_array() && !slots.empty()) {
+                        slot_id = slots[0].value("id", -1);
+                    }
+                    
+                    if (slot_id >= 0) {
+                        std::string context_key;
+                        
+                        if (!restore_key.empty() && ratio >= lcp_threshold) {
+                            std::string cache_dir = get_cache_dir();
+                            if (restore_slot(slot_id, restore_key, cache_dir)) {
+                                context_key = restore_key;
+                                register_slot_assignment(slot_id, context_key);
+                                LOG(INFO, "LlamaCpp") << "Cache HIT (stream): restored slot " << slot_id 
+                                                      << " ratio=" << ratio << std::endl;
+                            } else {
+                                LOG(ERROR, "LlamaCpp") << "Cache restore failed for slot " << slot_id << std::endl;
+                                throw std::runtime_error("Failed to restore cached context");
+                            }
+                        }
+                        
+                        if (context_key.empty()) {
+                            context_key = sha256(model_name + "_" + recipe_fingerprint + "_" + prompt);
+                            register_slot_assignment(slot_id, context_key);
+                            LOG(DEBUG, "LlamaCpp") << "Cache MISS (stream): new slot " << slot_id << std::endl;
+                        }
+                        
+                        request["id_slot"] = slot_id;
+                        request["slot_id"] = slot_id;
+                        
+                        // Create SlotSaveGuard for automatic save on stream completion
+                        if (is_big) {
+                            int load_version = get_slot_context_version(slot_id);
+                            save_guard = std::make_shared<SlotSaveGuard>(
+                                this, slot_id, context_key, load_version, true);
+                        }
+                    }
+                }
+            }
+            
             body = llamacpp::sanitize_tool_schema_limits(std::move(request)).dump();
         }
     }
+    
+    // Wrap on_stream_complete to keep save_guard alive until stream finishes
+    auto wrapped_complete = [save_guard, on_stream_complete]() {
+        if (on_stream_complete) {
+            on_stream_complete();
+        }
+        // save_guard destructor runs here, saving the slot
+    };
 
     WrappedServer::forward_streaming_request(
-        endpoint, body, sink, sse, timeout_seconds, telemetry_callback, on_stream_complete);
+        endpoint, body, sink, sse, timeout_seconds, telemetry_callback, wrapped_complete);
 }
 
 } // namespace backends
@@ -898,7 +1040,7 @@ namespace backends {
 namespace llamacpp {
 
 std::unique_ptr<WrappedServer> create(const BackendContext& ctx) {
-    return make_server<LlamaCppServer>(ctx);
+    return std::make_unique<LlamaCppServer>(ctx.log_level, ctx.model_manager, ctx.backend_manager, ctx.slot_cache_manager);
 }
 
 namespace {

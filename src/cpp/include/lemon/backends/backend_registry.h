@@ -12,6 +12,7 @@ class WrappedServer;
 class ModelManager;
 class BackendManager;
 class CloudProviderRegistry;
+class SlotCacheManager;
 struct ModelInfo;
 
 namespace backends {
@@ -25,6 +26,7 @@ struct BackendContext {
     BackendManager* backend_manager = nullptr;
     CloudProviderRegistry* cloud_registry = nullptr;
     const ModelInfo* model_info = nullptr;  // for per-create setup (cloud provider, ryzenai model path)
+    SlotCacheManager* slot_cache_manager = nullptr;
 };
 
 using BackendCreateFn = std::unique_ptr<WrappedServer> (*)(const BackendContext&);

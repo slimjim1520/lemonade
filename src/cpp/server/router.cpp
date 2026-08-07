@@ -463,6 +463,7 @@ std::unique_ptr<WrappedServer> Router::create_backend_server(const ModelInfo& mo
     ctx.model_manager = model_manager_;
     ctx.backend_manager = backend_manager_;
     ctx.cloud_registry = cloud_registry_;
+    ctx.slot_cache_manager = slot_cache_manager_.get();
     ctx.model_info = &model_info;
 
     // The backend registry binds each recipe to its create() (see LEMON_BACKENDS).
