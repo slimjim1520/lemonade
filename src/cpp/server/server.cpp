@@ -25,6 +25,7 @@
 #include "lemon/thinking_controls.h"
 #include "lemon/prometheus_metrics.h"
 #include "lemon/runtime_config.h"
+#include "lemon/slot_cache_manager.h"
 #include "telemetry.h"
 #include "lemon/system_info.h"
 #include "lemon/version.h"
