@@ -10,13 +10,13 @@
 #include "lemon/backends/kokoro/kokoro_server.h"
 #include "lemon/backends/sdcpp/sdcpp_server.h"
 #include "lemon/backends/vllm/vllm_server.h"
-#include "lemon/slot_cache_manager.h"
-#include "lemon/slot_cache_guard.h"
 #include "lemon/server_capabilities.h"
 #include "lemon/streaming_proxy.h"
 #include "lemon/error_types.h"
 #include "lemon/recipe_options.h"
 #include "lemon/auto_tune.h"
+#include "lemon/slot_cache_manager.h"
+#include "lemon/slot_cache_guard.h"
 #include "telemetry.h"
 #include <algorithm>
 #include <condition_variable>
@@ -1387,91 +1387,8 @@ json Router::chat_completion(const json& request, std::atomic<bool>* cancel) {
                 if (request.contains("max_completion_tokens")) span->set_attribute("llm.config.max_completion_tokens", request["max_completion_tokens"]);
             }
             
-            // Slot cache integration - check if caching is enabled for this model
-            const RecipeOptions& options = server->get_recipe_options();
-            json slot_cache_enabled_json = options.get_option("slot_cache_enabled");
-            bool slot_cache_enabled = slot_cache_enabled_json.is_boolean() ? slot_cache_enabled_json.get<bool>() : false;
-            
-            int slot_id = -1;
-            std::string context_key;
-            std::unique_ptr<SlotSaveGuard> save_guard;
-            
-            if (slot_cache_enabled && slot_cache_manager_ && supports_capability<ISlotsServer>(server)) {
-                // Use ISlotsServer interface, then cast to LlamaCppServer for specific methods
-                auto* slots_server = dynamic_cast<ISlotsServer*>(server);
-                auto* llamacpp_server = dynamic_cast<LlamaCppServer*>(server);
-                if (slots_server && llamacpp_server) {
-                    // Extract prompt from request
-                    std::string prompt = slot_cache_manager_->extract_prompt_for_similarity(request);
-                    
-                    // Compute word blocks
-                    json wpb_json = options.get_option("words_per_block");
-                    int words_per_block = wpb_json.is_number_integer() ? wpb_json.get<int>() : 100;
-                    auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
-                    
-                    // Check if "big" request
-                    int word_count = prompt_blocks.size() * words_per_block;
-                    json threshold_json = options.get_option("big_request_word_threshold");
-                    int big_threshold = threshold_json.is_number_integer() ? threshold_json.get<int>() : 500;
-                    bool is_big = word_count > big_threshold;
-                    
-                    std::string model_name = server->get_model_name();
-                    std::string recipe_fingerprint = options.to_log_string();
-                    json lcp_json = options.get_option("lcp_threshold");
-                    double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
-                    
-                    // Find best cache candidate (LCP-based matching)
-                    auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
-                        model_name, recipe_fingerprint, prompt_blocks, lcp_threshold);
-                    
-                    // Get available slot
-                    json slots = server->get_slots();
-                    if (slots.is_array() && !slots.empty()) {
-                        slot_id = slots[0].value("id", -1);
-                    }
-                    
-                    if (slot_id >= 0) {
-                        if (!restore_key.empty() && ratio >= lcp_threshold) {
-                            // CACHE HIT - attempt restore
-                            std::string cache_dir = config_->slot_cache_dir() + "/" + model_name;
-                            if (llamacpp_server->restore_slot(slot_id, restore_key, cache_dir)) {
-                                context_key = restore_key;
-                                llamacpp_server->register_slot_assignment(slot_id, context_key);
-                                LOG(INFO, "Router") << "Cache HIT: restored slot " << slot_id 
-                                                    << " ratio=" << ratio << std::endl;
-                            } else {
-                                // Restore failed - FAIL THE REQUEST
-                                LOG(ERROR, "Router") << "Cache restore failed for slot " << slot_id << std::endl;
-                                throw std::runtime_error("Failed to restore cached context");
-                            }
-                        }
-                        
-                        if (context_key.empty()) {
-                            // CACHE MISS - create new context key
-                            context_key = llamacpp_server->sha256(
-                                model_name + "_" + recipe_fingerprint + "_" + prompt);
-                            llamacpp_server->register_slot_assignment(slot_id, context_key);
-                            LOG(DEBUG, "Router") << "Cache MISS: new slot " << slot_id << std::endl;
-                        }
-                        
-                        // Inject slot_id into request
-                        request["id_slot"] = slot_id;
-                        request["slot_id"] = slot_id;
-                        
-                        // Create SlotSaveGuard for automatic save on completion (BIG requests only)
-                        if (is_big) {
-                            int load_version = llamacpp_server->get_slot_context_version(slot_id);
-                            std::string cache_dir = config_->slot_cache_dir() + "/" + model_name;
-                            save_guard = std::make_unique<SlotSaveGuard>(
-                                llamacpp_server, slot_id, context_key, load_version, true);
-                        }
-                    }
-                }
-            }
-            
-            return server->chat_completion(request);
-        });
 
+            return server->chat_completion(request);
         if (span) {
             if (response.contains("error")) {
                 std::string error_msg = "Request failed";
