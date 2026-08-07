@@ -98,6 +98,8 @@ public:
     virtual void register_slot_assignment(int slot_id, const std::string& context_key) = 0;
     virtual void unregister_slot_assignment(int slot_id) = 0;
     virtual std::string get_slot_context_key(int slot_id) const = 0;
+    virtual int get_slot_context_version(int slot_id) const = 0;
+    virtual bool save_slot(int slot_id, const std::string& key, const std::string& cache_dir) = 0;
 };
 
 class ITokenizerServer : public virtual ICapability {

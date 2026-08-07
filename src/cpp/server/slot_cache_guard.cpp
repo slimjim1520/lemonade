@@ -11,15 +11,15 @@ SlotSaveGuard::SlotSaveGuard(WrappedServer* server, int slot_id, const std::stri
 
 void SlotSaveGuard::save_to_cache() {
     if (!saved_ && is_big_ && server_) {
-        auto* llamacpp_server = dynamic_cast<LlamaCppServer*>(server_);
-        if (!llamacpp_server) return;
+        auto* slots_server = dynamic_cast<ISlotsServer*>(server_);
+        if (!slots_server) return;
         
-        std::string context_key = llamacpp_server->get_slot_context_key(slot_id_);
-        int context_version = llamacpp_server->get_slot_context_version(slot_id_);
+        std::string context_key = slots_server->get_slot_context_key(slot_id_);
+        int context_version = slots_server->get_slot_context_version(slot_id_);
         
         if (context_key == key_ && context_version == version_ && server_->is_backend_alive()) {
             std::string cache_dir = "";
-            if (llamacpp_server->save_slot(slot_id_, key_, cache_dir)) {
+            if (slots_server->save_slot(slot_id_, key_, cache_dir)) {
                 saved_ = true;
                 LOG(DEBUG, "SlotCache") << "Saved slot " << slot_id_ << " with key " << key_ << std::endl;
             } else {
@@ -30,7 +30,7 @@ void SlotSaveGuard::save_to_cache() {
                                     << " - context mismatch or server not alive" << std::endl;
         }
         
-        llamacpp_server->unregister_slot_assignment(slot_id_);
+        slots_server->unregister_slot_assignment(slot_id_);
     }
 }
 

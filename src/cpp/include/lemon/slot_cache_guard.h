@@ -1,7 +1,6 @@
 #ifndef LEMON_SLOT_CACHE_GUARD_H
 #define LEMON_SLOT_CACHE_GUARD_H
 
-#include "backends/llamacpp/llamacpp_server.h"
 #include "wrapped_server.h"
 #include "server_capabilities.h"
 
@@ -23,11 +22,9 @@ public:
                   int version, bool is_big);
     ~SlotSaveGuard();
     
-    // Delete copy constructor and assignment operator
     SlotSaveGuard(const SlotSaveGuard&) = delete;
     SlotSaveGuard& operator=(const SlotSaveGuard&) = delete;
     
-    // Allow move constructor
     SlotSaveGuard(SlotSaveGuard&& other) noexcept;
     SlotSaveGuard& operator=(SlotSaveGuard&& other) noexcept;
 };
