@@ -6044,7 +6044,7 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
 
     // Slot cache stats
     try {
-        std::string cache_dir = config_->models_dir() + "/slot_cache";
+        std::string cache_dir = config_->slot_cache_dir();
         double cache_size_gb = 0.0;
         double total_gb = 0.0;
         
