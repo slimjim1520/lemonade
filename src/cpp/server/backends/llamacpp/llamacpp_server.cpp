@@ -471,6 +471,37 @@ void LlamaCppServer::load(const std::string& model_name,
             }
             
             push_arg(args, reserved_flags, "--slot-save-path", slot_save_path);
+            
+            // Add --cache-idle-slots if slot caching is enabled
+            // This tells llama-server to cache idle slots for faster reuse
+            bool has_cache_idle_slots = false;
+            for (const auto& arg : args) {
+                if (arg == "--cache-idle-slots") {
+                    has_cache_idle_slots = true;
+                    break;
+                }
+            }
+            if (!has_cache_idle_slots) {
+                push_arg(args, reserved_flags, "--cache-idle-slots");
+            }
+            
+            // Add --cache-ram if specified in recipe options
+            json cache_ram_json = options.get_option("slot_cache_ram");
+            if (cache_ram_json.is_number_integer()) {
+                int cache_ram_mb = cache_ram_json.get<int>();
+                if (cache_ram_mb > 0) {
+                    bool has_cache_ram = false;
+                    for (const auto& arg : args) {
+                        if (arg == "--cache-ram") {
+                            has_cache_ram = true;
+                            break;
+                        }
+                    }
+                    if (!has_cache_ram) {
+                        push_arg(args, reserved_flags, "--cache-ram", std::to_string(cache_ram_mb));
+                    }
+                }
+            }
         }
     }
 

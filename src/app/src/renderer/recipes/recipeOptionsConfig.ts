@@ -40,6 +40,7 @@ export interface LlamaOptions {
   pinned: BooleanOption;
   saveOptions: BooleanOption;
   slotCacheEnabled: BooleanOption;
+  slotCacheRam: NumericOption;
   slotCacheLcpThreshold: NumericOption;
   slotCacheWordThreshold: NumericOption;
   slotCacheWordsPerBlock: NumericOption;
@@ -223,6 +224,15 @@ export const OPTION_DEFINITIONS: Record<string, OptionDef> = {
     default: false,
     label: 'Enable Slot Cache',
     description: 'Enable context caching for this model using llama.cpp slots',
+  },
+  slotCacheRam: {
+    type: 'numeric',
+    default: 8192,
+    min: 0,
+    max: 65536,
+    step: 512,
+    label: 'Slot Cache RAM (MB)',
+    description: 'RAM to allocate for slot cache (0 = unlimited). Recommended: 8192 MB',
   },
   slotCacheLcpThreshold: {
     type: 'numeric',
@@ -452,6 +462,7 @@ const FRONTEND_TO_API_MAP: Record<string, string> = {
   vllmArgs: 'vllm_args',
   saveOptions: 'save_options',
   slotCacheEnabled: 'slot_cache_enabled',
+  slotCacheRam: 'slot_cache_ram',
   slotCacheLcpThreshold: 'lcp_threshold',
   slotCacheWordThreshold: 'big_request_word_threshold',
   slotCacheWordsPerBlock: 'words_per_block',
