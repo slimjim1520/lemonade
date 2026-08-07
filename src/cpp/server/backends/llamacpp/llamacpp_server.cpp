@@ -458,6 +458,15 @@ void LlamaCppServer::load(const std::string& model_name,
         }
         
         if (!has_slot_save_path) {
+            // Create the cache directory if it doesn't exist
+            try {
+                std::filesystem::create_directories(slot_save_path);
+                LOG(DEBUG, "LlamaCpp") << "Created slot cache directory: " << slot_save_path << std::endl;
+            } catch (const std::filesystem::filesystem_error& e) {
+                LOG(WARNING, "LlamaCpp") << "Failed to create slot cache directory " << slot_save_path 
+                                         << ": " << e.what() << std::endl;
+            }
+            
             push_arg(args, reserved_flags, "--slot-save-path", slot_save_path);
         }
     }
