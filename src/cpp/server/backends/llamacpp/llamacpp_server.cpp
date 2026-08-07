@@ -422,10 +422,29 @@ void LlamaCppServer::load(const std::string& model_name,
     std::string slot_save_path = options.get_option("slot_cache_dir");
     bool slot_cache_enabled = options.get_option("slot_cache_enabled", false);
     
-    // Use global slot_cache_dir if per-model option is not set
+    // Use global slot_cache_dir + model_name if per-model option is not set
     if (slot_save_path.empty() && slot_cache_enabled) {
         if (auto* cfg = RuntimeConfig::global()) {
-            slot_save_path = cfg->slot_cache_dir();
+            std::string global_cache_dir = cfg->slot_cache_dir();
+            std::string default_cache_dir = cfg->models_dir() + "/slot_cache";
+            
+            // Only use global cache dir if it's explicitly configured (not default)
+            if (global_cache_dir != default_cache_dir) {
+                // Create per-model subdirectory: <global_cache_dir>/<model_name>
+                std::string model_name = get_model_name();
+                if (!model_name.empty()) {
+                    // Sanitize model name for filesystem (replace / with _)
+                    std::string safe_model_name = model_name;
+                    size_t pos = 0;
+                    while ((pos = safe_model_name.find('/', pos)) != std::string::npos) {
+                        safe_model_name.replace(pos, 1, "_");
+                        pos += 1;
+                    }
+                    slot_save_path = global_cache_dir + "/" + safe_model_name;
+                } else {
+                    slot_save_path = global_cache_dir;
+                }
+            }
         }
     }
     
