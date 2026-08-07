@@ -666,8 +666,12 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     const isLlamaRecipe = modelInfo?.recipe === 'llamacpp';
     
     return availableOptions.map(key => {
-      // Skip slot cache options if cache is disabled or not llama recipe
-      if (key.startsWith('slotCache') && (!isSlotCacheEnabled || !isLlamaRecipe)) {
+      // Skip slot cache options (except the enable checkbox) if cache is disabled or not llama recipe
+      if (key.startsWith('slotCache') && key !== 'slotCacheEnabled' && (!isSlotCacheEnabled || !isLlamaRecipe)) {
+        return null;
+      }
+      // Skip slotCacheEnabled for non-llama recipes
+      if (key === 'slotCacheEnabled' && !isLlamaRecipe) {
         return null;
       }
       
