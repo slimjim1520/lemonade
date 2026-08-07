@@ -64,6 +64,12 @@ public:
     uint64_t get_restore_failures() const { return stats_.restore_failures.load(); }
     double get_hit_rate() const;
     double get_avg_restore_time() const;
+    
+    // Extract prompt text for similarity comparison
+    std::string extract_prompt_for_similarity(const json& request) const;
+    
+    // Helper to convert prompt to word blocks
+    std::vector<std::string> prompt_to_word_blocks(const std::string& prompt, int words_per_block) const;
 
 private:
     std::string cache_dir_;
@@ -73,12 +79,6 @@ private:
     // Compute LCP (Longest Common Prefix) ratio
     double compute_lcp_ratio(const std::vector<std::string>& blocks1, 
                            const std::vector<std::string>& blocks2) const;
-
-    // Extract prompt text for similarity comparison
-    std::string extract_prompt_for_similarity(const json& request) const;
-    
-    // Helper to convert prompt to word blocks
-    std::vector<std::string> prompt_to_word_blocks(const std::string& prompt, int words_per_block) const;
     
     // Helper to compute SHA256 hash
     std::string sha256(const std::string& input) const;

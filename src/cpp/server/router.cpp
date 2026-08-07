@@ -10,13 +10,13 @@
 #include "lemon/backends/kokoro/kokoro_server.h"
 #include "lemon/backends/sdcpp/sdcpp_server.h"
 #include "lemon/backends/vllm/vllm_server.h"
+#include "lemon/slot_cache_manager.h"
+#include "lemon/slot_cache_guard.h"
 #include "lemon/server_capabilities.h"
 #include "lemon/streaming_proxy.h"
 #include "lemon/error_types.h"
 #include "lemon/recipe_options.h"
 #include "lemon/auto_tune.h"
-#include "lemon/slot_cache_manager.h"
-#include "lemon/slot_cache_guard.h"
 #include "telemetry.h"
 #include <algorithm>
 #include <condition_variable>
@@ -1389,30 +1389,36 @@ json Router::chat_completion(const json& request, std::atomic<bool>* cancel) {
             
             // Slot cache integration - check if caching is enabled for this model
             const RecipeOptions& options = server->get_recipe_options();
-            bool slot_cache_enabled = options.get_option("slot_cache_enabled", false);
+            json slot_cache_enabled_json = options.get_option("slot_cache_enabled");
+            bool slot_cache_enabled = slot_cache_enabled_json.is_boolean() ? slot_cache_enabled_json.get<bool>() : false;
             
             int slot_id = -1;
             std::string context_key;
             std::unique_ptr<SlotSaveGuard> save_guard;
             
             if (slot_cache_enabled && slot_cache_manager_ && supports_capability<ISlotsServer>(server)) {
+                // Use ISlotsServer interface, then cast to LlamaCppServer for specific methods
+                auto* slots_server = dynamic_cast<ISlotsServer*>(server);
                 auto* llamacpp_server = dynamic_cast<LlamaCppServer*>(server);
-                if (llamacpp_server) {
+                if (slots_server && llamacpp_server) {
                     // Extract prompt from request
                     std::string prompt = slot_cache_manager_->extract_prompt_for_similarity(request);
                     
                     // Compute word blocks
-                    int words_per_block = options.get_option("words_per_block", 100);
+                    json wpb_json = options.get_option("words_per_block");
+                    int words_per_block = wpb_json.is_number_integer() ? wpb_json.get<int>() : 100;
                     auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
                     
                     // Check if "big" request
                     int word_count = prompt_blocks.size() * words_per_block;
-                    int big_threshold = options.get_option("big_request_word_threshold", 500);
+                    json threshold_json = options.get_option("big_request_word_threshold");
+                    int big_threshold = threshold_json.is_number_integer() ? threshold_json.get<int>() : 500;
                     bool is_big = word_count > big_threshold;
                     
                     std::string model_name = server->get_model_name();
                     std::string recipe_fingerprint = options.to_log_string();
-                    double lcp_threshold = options.get_option("lcp_threshold", 0.6);
+                    json lcp_json = options.get_option("lcp_threshold");
+                    double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
                     
                     // Find best cache candidate (LCP-based matching)
                     auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
