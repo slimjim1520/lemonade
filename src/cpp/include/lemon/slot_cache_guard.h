@@ -3,9 +3,10 @@
 
 #include "wrapped_server.h"
 #include "server_capabilities.h"
-#include "backends/llamacpp/llamacpp_server.h"
 
 namespace lemon {
+
+class LlamaCppServer;
 
 class SlotSaveGuard {
 private:
@@ -15,6 +16,8 @@ private:
     int version_;
     bool is_big_;
     bool saved_;
+    
+    void save_to_cache();
 
 public:
     SlotSaveGuard(WrappedServer* server, int slot_id, const std::string& key, 
