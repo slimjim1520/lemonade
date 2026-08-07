@@ -11,7 +11,6 @@
 #include "lemon/backends/sdcpp/sdcpp_server.h"
 #include "lemon/backends/vllm/vllm_server.h"
 #include "lemon/slot_cache_manager.h"
-#include "lemon/slot_cache_guard.h"
 #include "lemon/server_capabilities.h"
 #include "lemon/streaming_proxy.h"
 #include "lemon/error_types.h"
