@@ -420,7 +420,9 @@ void LlamaCppServer::load(const std::string& model_name,
     // Auto-inject --slot-save-path if slot caching is enabled but not already present
     // This ensures that llama-server is capable of saving and restoring slots
     std::string slot_save_path = options.get_option("slot_cache_dir");
-    bool slot_cache_enabled = options.get_option("slot_cache_enabled", false);
+    bool slot_cache_enabled = options.options_.contains("slot_cache_enabled") 
+        ? options.options_["slot_cache_enabled"].get<bool>() 
+        : false;
     
     // Use global slot_cache_dir + model_name if per-model option is not set
     if (slot_save_path.empty() && slot_cache_enabled) {
