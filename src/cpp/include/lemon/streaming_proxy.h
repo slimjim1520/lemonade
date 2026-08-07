@@ -47,7 +47,8 @@ public:
         httplib::DataSink& sink,
         std::function<void(const TelemetryData&)> on_complete = nullptr,
         long timeout_seconds = 300,
-        std::function<void()> on_chunk = nullptr
+        std::function<void()> on_chunk = nullptr,
+        std::function<void()> on_stream_complete = nullptr
     );
 
     static void forward_byte_stream(

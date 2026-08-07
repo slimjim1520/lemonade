@@ -34,6 +34,18 @@ const ConnectionSettings: React.FC<ConnectionSettingsProps> = ({settings, onValu
         </div>
         <input type="text" value={settings['apiKey'].value} onChange={(e) => onValueChangeFunc('apiKey', e.target.value)} className="settings-text-input"/>
       </div>
+      <div className={`settings-section ${settings.slotCacheDir.useDefault ? "settings-section-default" : ""}`}>
+        <div className="settings-label-row">
+          <label className="settings-label">
+            <span className="settings-label-text">Slot Cache Directory</span>
+            <span className="settings-description">Global directory for storing llama.cpp slot context caches. Leave empty to use default location.</span>
+          </label>
+          <button type="button" className="settings-field-reset" onClick={() => onResetFunc('slotCacheDir')} disabled={settings.slotCacheDir.useDefault}>
+            Reset
+          </button>
+        </div>
+        <input type="text" value={settings['slotCacheDir'].value} placeholder="~/.local/share/lemonade/slot_cache" onChange={(e) => onValueChangeFunc('slotCacheDir', e.target.value)} className="settings-text-input"/>
+      </div>
     </div>
   );
 }

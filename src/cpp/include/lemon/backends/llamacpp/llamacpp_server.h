@@ -51,6 +51,17 @@ public:
     // ISlotsServer implementation
     json get_slots() override;
     json slots_action(int slot_id, const std::string& action, const json& request_body) override;
+    void register_slot_assignment(int slot_id, const std::string& context_key) override;
+    void unregister_slot_assignment(int slot_id) override;
+    std::string get_slot_context_key(int slot_id) const override;
+    int get_slot_context_version(int slot_id) const;
+    
+    // Slot save/restore functionality
+    bool restore_slot(int slot_id, const std::string& key, const std::string& cache_dir);
+    bool save_slot(int slot_id, const std::string& key, const std::string& cache_dir);
+    
+    // Helper for hashing
+    std::string sha256(const std::string& input) const;
 
     // ITokenizerServer implementation
     json tokenize(const json& request) override;
@@ -60,6 +71,12 @@ private:
     // in the OpenAI `model` field. Rewrite it to the client-facing model id so
     // responses don't leak absolute filesystem paths (and usernames).
     json normalize_response_model(json response, const json& request) const;
+    
+    // Slot assignment tracking
+    mutable std::mutex slot_map_mutex_;
+    std::map<int, std::string> slot_context_map_;
+    std::map<int, int> slot_context_versions_;
+    int load_version_ = 0;
 };
 
 namespace llamacpp {

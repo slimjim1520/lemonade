@@ -201,6 +201,7 @@ private:
     std::unique_ptr<GlobalVramMonitor> vram_monitor_;
     std::unique_ptr<EvictionEngine> eviction_engine_;
     std::unique_ptr<SuspendInhibitor> suspend_inhibitor_;
+    std::unique_ptr<SlotCacheManager> slot_cache_manager_;
 
     // Helper methods for multi-model management
     WrappedServer* find_server_by_model_name(const std::string& model_name) const;

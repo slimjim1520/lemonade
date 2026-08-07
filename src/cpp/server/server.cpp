@@ -1210,6 +1210,20 @@ void Server::setup_routes(httplib::Server &web_server) {
         handle_delete(req, res);
     });
 
+    // Slot cache management
+    web_server.Delete(R"(/api/v0/models/(.+)/cache)", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_delete_model_cache(req, res);
+    });
+    web_server.Delete(R"(/api/v1/models/(.+)/cache)", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_delete_model_cache(req, res);
+    });
+    web_server.Delete(R"(/v0/models/(.+)/cache)", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_delete_model_cache(req, res);
+    });
+    web_server.Delete(R"(/v1/models/(.+)/cache)", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_delete_model_cache(req, res);
+    });
+
     register_post("params", [this](const httplib::Request& req, httplib::Response& res) {
         handle_params(req, res);
     });
@@ -5551,6 +5565,51 @@ void Server::handle_delete(const httplib::Request& req, httplib::Response& res) 
     }
 }
 
+void Server::handle_delete_model_cache(const httplib::Request& req, httplib::Response& res) {
+    try {
+        // Extract model name from URL path
+        std::string model_name = req.matches[1];
+        
+        if (model_name.empty()) {
+            res.status = 400;
+            nlohmann::json error = {{"error", "Model name is required"}};
+            res.set_content(error.dump(), "application/json");
+            return;
+        }
+
+        LOG(INFO, "Server") << "Deleting cache for model: " << model_name << std::endl;
+
+        // Get the slot cache directory from config
+        std::string cache_dir = config_->models_dir() + "/slot_cache/" + model_name;
+        
+        // Check if cache directory exists
+        if (!std::filesystem::exists(cache_dir)) {
+            res.status = 404;
+            nlohmann::json error = {{"error", "Cache not found for model: " + model_name}};
+            res.set_content(error.dump(), "application/json");
+            return;
+        }
+
+        // Delete the cache directory recursively
+        std::filesystem::remove_all(cache_dir);
+        
+        LOG(INFO, "Server") << "Successfully deleted cache for model: " << model_name << std::endl;
+
+        // Success response
+        nlohmann::json response = {
+            {"status", "success"},
+            {"message", "Deleted cache for model: " + model_name}
+        };
+        res.set_content(response.dump(), "application/json");
+
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Server") << "ERROR in handle_delete_model_cache: " << e.what() << std::endl;
+        res.status = 500;
+        nlohmann::json error = {{"error", e.what()}};
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
 void Server::handle_cleanup_cache(const httplib::Request& req, httplib::Response& res) {
     try {
         auto request_json = nlohmann::json::parse(req.body);
@@ -5982,6 +6041,32 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
     // NPU Utilization
     double npu_percent = get_npu_utilization();
     stats["npu_percent"] = (npu_percent >= 0) ? nlohmann::json(npu_percent) : nlohmann::json();
+
+    // Slot cache stats
+    try {
+        std::string cache_dir = config_->models_dir() + "/slot_cache";
+        double cache_size_gb = 0.0;
+        
+        if (std::filesystem::exists(cache_dir)) {
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(cache_dir)) {
+                if (entry.is_regular_file()) {
+                    cache_size_gb += entry.file_size() / (1024.0 * 1024.0 * 1024.0);
+                }
+            }
+        }
+        
+        stats["slot_cache_gb"] = cache_size_gb;
+        
+        // Get total disk space for the drive containing the cache directory
+        std::filesystem::space_info space = std::filesystem::space(cache_dir);
+        double total_gb = space.capacity / (1024.0 * 1024.0 * 1024.0);
+        stats["disk_total_gb"] = total_gb;
+        
+    } catch (const std::exception& e) {
+        LOG(DEBUG, "Server") << "Could not calculate slot cache stats: " << e.what() << std::endl;
+        stats["slot_cache_gb"] = nlohmann::json();
+        stats["disk_total_gb"] = nlohmann::json();
+    }
 
     res.set_content(stats.dump(), "application/json");
 }

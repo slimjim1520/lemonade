@@ -239,6 +239,15 @@ std::string RuntimeConfig::models_dir() const {
     return config_["models_dir"].get<std::string>();
 }
 
+std::string RuntimeConfig::slot_cache_dir() const {
+    std::shared_lock lock(mutex_);
+    if (config_.contains("slot_cache_dir") && !config_["slot_cache_dir"].is_null()) {
+        return config_["slot_cache_dir"].get<std::string>();
+    }
+    // Default to models_dir/slot_cache
+    return models_dir() + "/slot_cache";
+}
+
 int RuntimeConfig::ctx_size() const {
     std::shared_lock lock(mutex_);
     return config_["ctx_size"].get<int>();

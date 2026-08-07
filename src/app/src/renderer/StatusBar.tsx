@@ -14,6 +14,8 @@ interface SystemStats {
   gpu_percent: number | null;
   vram_gb: number | null;
   npu_percent: number | null;
+  slot_cache_gb: number | null;
+  disk_total_gb: number | null;
 }
 
 const StatusBar: React.FC = () => {
@@ -29,6 +31,8 @@ const StatusBar: React.FC = () => {
     gpu_percent: null,
     vram_gb: null,
     npu_percent: null,
+    slot_cache_gb: null,
+    disk_total_gb: null,
   });
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
   const [serverUrl, setServerUrl] = useState<string>('');
@@ -72,6 +76,8 @@ const StatusBar: React.FC = () => {
           gpu_percent: stats.gpu_percent ?? null,
           vram_gb: stats.vram_gb ?? null,
           npu_percent: stats.npu_percent ?? null,
+          slot_cache_gb: stats.slot_cache_gb ?? null,
+          disk_total_gb: stats.disk_total_gb ?? null,
         });
       }
     } catch {
@@ -126,6 +132,12 @@ const StatusBar: React.FC = () => {
   const formatVram = (gb: number | null): string => {
     if (gb === null || gb === undefined) return 'N/A';
     return `${gb.toFixed(1)} GB`;
+  };
+
+  const formatCacheStats = (cacheGb: number | null, totalGb: number | null): string => {
+    if (cacheGb === null || cacheGb === undefined || totalGb === null || totalGb === undefined || totalGb === 0) return 'N/A';
+    const percent = (cacheGb / totalGb) * 100;
+    return `${cacheGb.toFixed(1)} GB (${percent.toFixed(1)}%)`;
   };
 
   const formatPercent = (percent: number | null): string => {
@@ -218,6 +230,13 @@ const StatusBar: React.FC = () => {
           <span className="status-bar-label status-bar-label-long">NPU:</span>
           <span className="status-bar-label status-bar-label-short">NPU:</span>
           <span className="status-bar-value">{formatPercent(systemStats.npu_percent)}</span>
+        </div>
+      )}
+      {systemStats.slot_cache_gb !== null && systemStats.disk_total_gb !== null && (
+        <div className="status-bar-item">
+          <span className="status-bar-label status-bar-label-long">CACHE:</span>
+          <span className="status-bar-label status-bar-label-short">CACHE:</span>
+          <span className="status-bar-value">{formatCacheStats(systemStats.slot_cache_gb, systemStats.disk_total_gb)}</span>
         </div>
       )}
     </div>

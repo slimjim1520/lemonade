@@ -13,6 +13,8 @@
 #include <regex>
 #include <system_error>
 #include <utility>
+#include <iomanip>
+#include <openssl/sha.h>
 #include "lemon/auto_tune.h"
 #include "lemon/backend_manager.h"
 #include "lemon/runtime_config.h"
@@ -414,6 +416,23 @@ void LlamaCppServer::load(const std::string& model_name,
         std::vector<std::string> custom_args_vec = parse_custom_args(llamacpp_args);
         args.insert(args.end(), custom_args_vec.begin(), custom_args_vec.end());
     }
+    
+    // Auto-inject --slot-save-path if slot caching is enabled but not already present
+    // This ensures that llama-server is capable of saving and restoring slots
+    std::string slot_save_path = options.get_option("slot_cache_dir");
+    if (!slot_save_path.empty()) {
+        bool has_slot_save_path = false;
+        for (const auto& arg : args) {
+            if (arg == "--slot-save-path") {
+                has_slot_save_path = true;
+                break;
+            }
+        }
+        
+        if (!has_slot_save_path) {
+            push_arg(args, reserved_flags, "--slot-save-path", slot_save_path);
+        }
+    }
 
     LOG(INFO, "LlamaCpp") << "Starting llama-server..." << std::endl;
 
@@ -578,11 +597,26 @@ void LlamaCppServer::load(const std::string& model_name,
     }
 
     LOG(DEBUG, "LlamaCpp") << "Model loaded on port " << get_backend_port() << std::endl;
+    
+    // Clear slot context map on load (to ensure clean state)
+    {
+        std::lock_guard<std::mutex> lock(slot_map_mutex_);
+        slot_context_map_.clear();
+        slot_context_versions_.clear();
+        load_version_++;
+    }
 }
 
 void LlamaCppServer::unload() {
     stop_backend_watchdog();
     LOG(INFO, "LlamaCpp") << "Unloading model..." << std::endl;
+
+    // Clear slot context map on unload
+    {
+        std::lock_guard<std::mutex> lock(slot_map_mutex_);
+        slot_context_map_.clear();
+        slot_context_versions_.clear();
+    }
 
     const ProcessHandle handle = consume_process_handle_for_cleanup();
     if (has_process_handle(handle)) {
@@ -649,8 +683,68 @@ json LlamaCppServer::slots_action(int slot_id, const std::string& action, const 
     return forward_request("/slots/" + std::to_string(slot_id) + "?action=" + action, request_body);
 }
 
+void LlamaCppServer::register_slot_assignment(int slot_id, const std::string& context_key) {
+    std::lock_guard<std::mutex> lock(slot_map_mutex_);
+    slot_context_map_[slot_id] = context_key;
+    slot_context_versions_[slot_id] = load_version_;
+}
+
+void LlamaCppServer::unregister_slot_assignment(int slot_id) {
+    std::lock_guard<std::mutex> lock(slot_map_mutex_);
+    slot_context_map_.erase(slot_id);
+    slot_context_versions_.erase(slot_id);
+}
+
+std::string LlamaCppServer::get_slot_context_key(int slot_id) const {
+    std::lock_guard<std::mutex> lock(slot_map_mutex_);
+    auto it = slot_context_map_.find(slot_id);
+    return (it != slot_context_map_.end()) ? it->second : "";
+}
+
+int LlamaCppServer::get_slot_context_version(int slot_id) const {
+    std::lock_guard<std::mutex> lock(slot_map_mutex_);
+    auto it = slot_context_versions_.find(slot_id);
+    return (it != slot_context_versions_.end()) ? it->second : -1;
+}
+
 json LlamaCppServer::tokenize(const json& request_body) {
     return forward_request("/tokenize", request_body);
+}
+
+bool LlamaCppServer::restore_slot(int slot_id, const std::string& key, const std::string& cache_dir) {
+    json request_body = {{"filename", key}};
+    try {
+        slots_action(slot_id, "restore", request_body);
+        return true;
+    } catch (const std::exception& e) {
+        LOG(WARNING, "LlamaCpp") << "Failed to restore slot " << slot_id << ": " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool LlamaCppServer::save_slot(int slot_id, const std::string& key, const std::string& cache_dir) {
+    json request_body = {{"filename", key}};
+    try {
+        slots_action(slot_id, "save", request_body);
+        return true;
+    } catch (const std::exception& e) {
+        LOG(WARNING, "LlamaCpp") << "Failed to save slot " << slot_id << ": " << e.what() << std::endl;
+        return false;
+    }
+}
+
+std::string LlamaCppServer::sha256(const std::string& input) const {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX sha256_ctx;
+    SHA256_Init(&sha256_ctx);
+    SHA256_Update(&sha256_ctx, input.c_str(), input.size());
+    SHA256_Final(hash, &sha256_ctx);
+    
+    std::stringstream ss;
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+    }
+    return ss.str();
 }
 
 json LlamaCppServer::responses(const json& request) {

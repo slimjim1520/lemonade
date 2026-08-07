@@ -15,6 +15,7 @@
 #include "lemon/error_types.h"
 #include "lemon/recipe_options.h"
 #include "lemon/auto_tune.h"
+#include "lemon/slot_cache_manager.h"
 #include "telemetry.h"
 #include <algorithm>
 #include <condition_variable>
@@ -66,6 +67,7 @@ Router::Router(RuntimeConfig* config, ModelManager* model_manager, BackendManage
     vram_monitor_ = std::make_unique<GlobalVramMonitor>();
     eviction_engine_ = std::make_unique<EvictionEngine>(this, vram_monitor_.get());
     suspend_inhibitor_ = create_suspend_inhibitor();
+    slot_cache_manager_ = std::make_unique<SlotCacheManager>(config_->slot_cache_dir());
 
     // Always start the monitor/engine threads; they are cheap no-ops until the
     // user opts in. The monitor skips the VRAM poll when auto_evict is disabled,
@@ -1383,6 +1385,60 @@ json Router::chat_completion(const json& request, std::atomic<bool>* cancel) {
                 if (request.contains("max_tokens")) span->set_attribute("llm.config.max_tokens", request["max_tokens"]);
                 if (request.contains("max_completion_tokens")) span->set_attribute("llm.config.max_completion_tokens", request["max_completion_tokens"]);
             }
+            
+            // Slot cache integration - check if caching is enabled for this model
+            if (slot_cache_manager_ && supports_capability<ISlotsServer>(server)) {
+                const RecipeOptions& options = server->get_recipe_options();
+                bool slot_cache_enabled = options.get_option("slot_cache_enabled", false);
+                
+                if (slot_cache_enabled) {
+                    auto* llamacpp_server = dynamic_cast<LlamaCppServer*>(server);
+                    if (llamacpp_server) {
+                        // Extract prompt for similarity matching
+                        std::string prompt = slot_cache_manager_->extract_prompt_for_similarity(request);
+                        
+                        if (!prompt.empty()) {
+                            std::string model_name = server->get_model_name();
+                            std::string recipe_fingerprint = options.to_log_string();
+                            int words_per_block = options.get_option("words_per_block", 100);
+                            double lcp_threshold = options.get_option("lcp_threshold", 0.6);
+                            
+                            // Convert prompt to word blocks
+                            auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
+                            
+                            // Find best matching cache
+                            auto candidate = slot_cache_manager_->find_best_candidate(
+                                model_name, recipe_fingerprint, prompt_blocks, lcp_threshold);
+                            
+                            // Get available slots
+                            json slots = server->get_slots();
+                            int slot_id = -1;
+                            if (slots.is_array() && !slots.empty()) {
+                                slot_id = slots[0].value("id", -1);
+                            }
+                            
+                            if (slot_id >= 0 && !candidate.first.empty()) {
+                                // Found a match - restore the cache
+                                std::string cache_dir = config_->slot_cache_dir() + "/" + model_name;
+                                if (llamacpp_server->restore_slot(slot_id, candidate.first, cache_dir)) {
+                                    // Inject slot ID into request
+                                    request["id_slot"] = slot_id;
+                                    request["slot_id"] = slot_id;
+                                    llamacpp_server->register_slot_assignment(slot_id, candidate.first);
+                                    LOG(DEBUG, "Router") << "Restored slot " << slot_id << " for model " << model_name << std::endl;
+                                }
+                            } else if (slot_id >= 0) {
+                                // No match - assign a new slot
+                                std::string new_key = llamacpp_server->sha256(model_name + "_" + recipe_fingerprint + "_" + prompt);
+                                llamacpp_server->register_slot_assignment(slot_id, new_key);
+                                request["id_slot"] = slot_id;
+                                request["slot_id"] = slot_id;
+                            }
+                        }
+                    }
+                }
+            }
+            
             return server->chat_completion(request);
         });
 

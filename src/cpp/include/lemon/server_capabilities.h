@@ -95,6 +95,9 @@ public:
     virtual ~ISlotsServer() = default;
     virtual json get_slots() = 0;
     virtual json slots_action(int slot_id, const std::string& action, const json& request_body) = 0;
+    virtual void register_slot_assignment(int slot_id, const std::string& context_key) = 0;
+    virtual void unregister_slot_assignment(int slot_id) = 0;
+    virtual std::string get_slot_context_key(int slot_id) const = 0;
 };
 
 class ITokenizerServer : public virtual ICapability {

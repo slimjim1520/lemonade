@@ -595,6 +595,10 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     const useDefault = getOptionUseDefault(key);
     if (value === undefined) return null;
 
+    // Special handling for slotCacheEnabled - add delete cache link
+    const isSlotCacheEnabled = key === 'slotCacheEnabled';
+    const showDeleteLink = isSlotCacheEnabled && value && !useDefault;
+
     return (
       <div
         className={`settings-section ${useDefault ? 'settings-section-default' : ''}`}
@@ -602,14 +606,26 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
       >
         <div className="settings-label-row">
           <span className="settings-label-text">{def.label}</span>
-          <button
-            type="button"
-            className="settings-field-reset"
-            onClick={() => handleResetField(key)}
-            disabled={useDefault}
-          >
-            Reset
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              className="settings-field-reset"
+              onClick={() => handleResetField(key)}
+              disabled={useDefault}
+            >
+              Reset
+            </button>
+            {showDeleteLink && (
+              <button
+                type="button"
+                className="settings-field-reset"
+                onClick={() => handleDeleteCache()}
+                title="Delete cached contexts for this model"
+              >
+                Delete Cache
+              </button>
+            )}
+          </div>
         </div>
         <label className="settings-checkbox-label">
           <input
@@ -628,9 +644,33 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     );
   };
 
+  const handleDeleteCache = async () => {
+    if (!modelName) return;
+    try {
+      const response = await serverFetch(`/models/${encodeURIComponent(modelName)}/cache`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to delete cache (${response.status})`);
+      }
+      // Show success message or refresh
+      console.log('Cache deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete cache:', error);
+    }
+  };
+
   // Render all options for the current recipe
   const renderOptions = () => {
+    const isSlotCacheEnabled = options?.slotCacheEnabled?.value === true;
+    const isLlamaRecipe = modelInfo?.recipe === 'llamacpp';
+    
     return availableOptions.map(key => {
+      // Skip slot cache options if cache is disabled or not llama recipe
+      if (key.startsWith('slotCache') && (!isSlotCacheEnabled || !isLlamaRecipe)) {
+        return null;
+      }
+      
       const def = getOptionDefinition(key);
       if (!def) return null;
 

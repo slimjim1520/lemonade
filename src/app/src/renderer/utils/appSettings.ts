@@ -1,6 +1,6 @@
 export type NumericSettingKey = 'temperature' | 'topK' | 'topP' | 'repeatPenalty';
 export type BooleanSettingKey = 'enableThinking' | 'collapseThinkingByDefault';
-export type StringSettingKey = 'baseURL' | 'apiKey';
+export type StringSettingKey = 'baseURL' | 'apiKey' | 'slotCacheDir';
 export type SettingKey = NumericSettingKey | BooleanSettingKey | StringSettingKey;
 
 export interface NumericSetting {
@@ -73,6 +73,7 @@ export const BASE_SETTING_VALUES: BaseSettingValues = {
   collapseThinkingByDefault: false,
   baseURL: '',
   apiKey: '',
+  slotCacheDir: '',
 };
 
 export const NUMERIC_SETTING_LIMITS: Record<NumericSettingKey, { min: number; max: number; step: number }> = {
