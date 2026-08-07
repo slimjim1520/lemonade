@@ -1,6 +1,7 @@
 #include "lemon/slot_cache_manager.h"
 #include "lemon/utils/json_utils.h"
 #include <lemon/utils/aixlog.hpp>
+#include <openssl/evp.h>
 #include <fstream>
 #include <iostream>
 #include <algorithm>
@@ -8,7 +9,6 @@
 #include <regex>
 #include <sstream>
 #include <iomanip>
-#include <openssl/sha.h>
 
 namespace lemon {
 
