@@ -492,7 +492,8 @@ void CloudServer::forward_streaming_request(const std::string& endpoint,
                                             httplib::DataSink& sink,
                                             bool sse,
                                             long timeout_seconds,
-                                            TelemetryCallback telemetry_callback) {
+                                            TelemetryCallback telemetry_callback,
+                                            std::function<void()> on_stream_complete) {
     // Telemetry from cloud streaming responses: OpenAI-shape SSE puts the
     // usage block in the final pre-[DONE] chunk. We don't parse it here —
     // the Router-level streaming path delivers cleaner numbers than we can
@@ -514,6 +515,9 @@ void CloudServer::forward_streaming_request(const std::string& endpoint,
         sink.done();
         if (telemetry_callback) {
             telemetry_callback(0, 0, 0.0, 0.0, "Cloud model not loaded");
+        }
+        if (on_stream_complete) {
+            on_stream_complete();
         }
         return;
     }
@@ -553,6 +557,9 @@ void CloudServer::forward_streaming_request(const std::string& endpoint,
         sink.done();
         if (telemetry_callback) {
             telemetry_callback(0, 0, 0.0, 0.0, "Missing API credentials");
+        }
+        if (on_stream_complete) {
+            on_stream_complete();
         }
         return;
     }
@@ -674,6 +681,9 @@ void CloudServer::forward_streaming_request(const std::string& endpoint,
                 if (telemetry_callback) {
                     telemetry_callback(0, 0, 0.0, 0.0, "cloud (" + provider_ + ") request failed with status " + std::to_string(result.status_code));
                 }
+                if (on_stream_complete) {
+                    on_stream_complete();
+                }
                 return;
             }
 
@@ -699,6 +709,9 @@ void CloudServer::forward_streaming_request(const std::string& endpoint,
                 }
                 telemetry_callback(input_tokens, output_tokens, time_to_first_token, tokens_per_second, "");
             }
+            if (on_stream_complete) {
+                on_stream_complete();
+            }
         } else {
             utils::HttpResponse result = utils::HttpClient::post_stream(
                 url,
@@ -717,8 +730,14 @@ void CloudServer::forward_streaming_request(const std::string& endpoint,
                     if (telemetry_callback) {
                         telemetry_callback(0, 0, 0.0, 0.0, "Client disconnected during stream");
                     }
+                    if (on_stream_complete) {
+                        on_stream_complete();
+                    }
                     return;
                 } else {
+                    if (on_stream_complete) {
+                        on_stream_complete();
+                    }
                     throw std::runtime_error("Request failed: CURL error: " + result.curl_error);
                 }
             }
@@ -732,12 +751,18 @@ void CloudServer::forward_streaming_request(const std::string& endpoint,
                     telemetry_callback(0, 0, 0.0, 0.0, "");
                 }
             }
+            if (on_stream_complete) {
+                on_stream_complete();
+            }
             sink.done();
         }
     } catch (const std::exception& e) {
         LOG(ERROR, "Cloud") << "Streaming request failed: " << e.what() << std::endl;
         if (telemetry_callback) {
             telemetry_callback(0, 0, 0.0, 0.0, e.what());
+        }
+        if (on_stream_complete) {
+            on_stream_complete();
         }
         try {
             std::string error_msg = sse_error(e.what(), "streaming_error");

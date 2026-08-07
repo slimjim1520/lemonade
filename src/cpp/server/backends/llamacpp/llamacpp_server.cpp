@@ -759,7 +759,8 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                                                httplib::DataSink& sink,
                                                bool sse,
                                                long timeout_seconds,
-                                               TelemetryCallback telemetry_callback) {
+                                               TelemetryCallback telemetry_callback,
+                                               std::function<void()> on_stream_complete) {
     std::string body = request_body;
     if (endpoint == "/v1/chat/completions" || endpoint == "/v1/responses") {
         json request = json::parse(request_body, nullptr, false);
@@ -772,7 +773,7 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
     }
 
     WrappedServer::forward_streaming_request(
-        endpoint, body, sink, sse, timeout_seconds, telemetry_callback);
+        endpoint, body, sink, sse, timeout_seconds, telemetry_callback, on_stream_complete);
 }
 
 } // namespace backends

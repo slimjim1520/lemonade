@@ -1,4 +1,4 @@
-#include "slot_cache_guard.h"
+#include "lemon/slot_cache_guard.h"
 #include "backends/llamacpp/llamacpp_server.h"
 #include "utils/logger.h"
 

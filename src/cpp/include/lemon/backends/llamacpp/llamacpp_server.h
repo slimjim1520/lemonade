@@ -40,7 +40,8 @@ public:
                                    httplib::DataSink& sink,
                                    bool sse = true,
                                    long timeout_seconds = 0,
-                                   TelemetryCallback telemetry_callback = nullptr) override;
+                                   TelemetryCallback telemetry_callback = nullptr,
+                                   std::function<void()> on_stream_complete = nullptr) override;
 
     // IEmbeddingsServer implementation
     json embeddings(const json& request) override;
