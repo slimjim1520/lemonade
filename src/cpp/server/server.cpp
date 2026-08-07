@@ -6066,10 +6066,6 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
             
             stats["slot_cache_gb"] = cache_size_gb;
             stats["disk_total_gb"] = total_gb;
-            
-            // Add cache performance metrics if slot_cache_manager_ is available
-            // Note: router_ is std::unique_ptr<Router>, need to dereference
-            // This will be implemented once Router exposes slot_cache_manager
         } else {
             // Don't show cache stats when using default (not configured)
             stats["slot_cache_gb"] = nlohmann::json();
