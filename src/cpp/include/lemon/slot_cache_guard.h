@@ -1,9 +1,9 @@
 #ifndef LEMON_SLOT_CACHE_GUARD_H
 #define LEMON_SLOT_CACHE_GUARD_H
 
+#include "backends/llamacpp/llamacpp_server.h"
 #include "wrapped_server.h"
 #include "server_capabilities.h"
-#include "backends/llamacpp/llamacpp_server.h"
 
 namespace lemon {
 

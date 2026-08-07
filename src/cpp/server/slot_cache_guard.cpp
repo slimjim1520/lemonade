@@ -1,5 +1,4 @@
 #include "lemon/slot_cache_guard.h"
-#include "lemon/backends/llamacpp/llamacpp_server.h"
 #include <lemon/utils/aixlog.hpp>
 
 namespace lemon {
