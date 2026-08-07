@@ -3,10 +3,9 @@
 
 #include "wrapped_server.h"
 #include "server_capabilities.h"
+#include "backends/llamacpp/llamacpp_server.h"
 
 namespace lemon {
-
-class LlamaCppServer;
 
 class SlotSaveGuard {
 private:
