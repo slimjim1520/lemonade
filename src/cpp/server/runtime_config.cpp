@@ -546,7 +546,7 @@ void RuntimeConfig::validate(const std::string& key, const json& value) const {
             throw std::invalid_argument(
                 "'log_level' must be one of: trace, debug, info, warning, error, fatal, none");
         }
-    } else if (key == "extra_models_dir" || key == "models_dir") {
+    } else if (key == "extra_models_dir" || key == "models_dir" || key == "slot_cache_dir") {
         if (!value.is_string()) {
             throw std::invalid_argument("'" + key + "' must be a string");
         }
