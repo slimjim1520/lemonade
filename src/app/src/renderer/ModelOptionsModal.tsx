@@ -585,7 +585,7 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     }
 
     // Render slot cache RAM with slider + input
-    if (key === 'slotCacheRam' && isSlotCacheConfigured && isSlotCacheEnabled) {
+    if (key === 'slotCacheRam' && isSlotCacheConfigured && options?.slotCacheEnabled?.value === true) {
       return renderSlotCacheRamField(key);
     }
 
