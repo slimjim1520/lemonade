@@ -54,7 +54,9 @@ SlotSaveGuard::~SlotSaveGuard() {
 
 SlotSaveGuard::SlotSaveGuard(SlotSaveGuard&& other) noexcept
     : server_(other.server_), slot_id_(other.slot_id_), key_(other.key_),
-      version_(other.version_), is_big_(other.is_big_), saved_(other.saved_) {
+      version_(other.version_), is_big_(other.is_big_), saved_(other.saved_),
+      cache_manager_(other.cache_manager_), model_id_(other.model_id_),
+      prompt_(other.prompt_), words_per_block_(other.words_per_block_) {
     other.saved_ = true; // Mark as moved
 }
 
@@ -70,6 +72,10 @@ SlotSaveGuard& SlotSaveGuard::operator=(SlotSaveGuard&& other) noexcept {
         version_ = other.version_;
         is_big_ = other.is_big_;
         saved_ = other.saved_;
+        cache_manager_ = other.cache_manager_;
+        model_id_ = other.model_id_;
+        prompt_ = other.prompt_;
+        words_per_block_ = other.words_per_block_;
         
         other.saved_ = true;
     }
