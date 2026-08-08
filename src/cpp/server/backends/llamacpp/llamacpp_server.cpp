@@ -748,6 +748,12 @@ json LlamaCppServer::normalize_response_model(json response, const json& request
 
 json LlamaCppServer::chat_completion(const json& request) {
     json modified_request = request;
+    std::string context_key;
+    int slot_id = -1;
+    bool is_big = false;
+    std::string model_name;
+    std::string prompt;
+    int words_per_block = 100;
     
     // Slot cache integration - LCP-based cache restore before inference
     if (slot_cache_manager_) {
@@ -756,18 +762,18 @@ json LlamaCppServer::chat_completion(const json& request) {
         bool slot_cache_enabled = slot_cache_enabled_json.is_boolean() ? slot_cache_enabled_json.get<bool>() : false;
         
         if (slot_cache_enabled) {
-            std::string prompt = slot_cache_manager_->extract_prompt_for_similarity(request);
+            prompt = slot_cache_manager_->extract_prompt_for_similarity(request);
             
             json wpb_json = options.get_option("words_per_block");
-            int words_per_block = wpb_json.is_number_integer() ? wpb_json.get<int>() : 100;
+            words_per_block = wpb_json.is_number_integer() ? wpb_json.get<int>() : 100;
             auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
             
             int word_count = prompt_blocks.size() * words_per_block;
             json threshold_json = options.get_option("big_request_word_threshold");
             int big_threshold = threshold_json.is_number_integer() ? threshold_json.get<int>() : 500;
-            bool is_big = word_count > big_threshold;
+            is_big = word_count > big_threshold;
             
-            std::string model_name = get_model_name();
+            model_name = get_model_name();
             json lcp_json = options.get_option("lcp_threshold");
             double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
             
@@ -775,14 +781,11 @@ json LlamaCppServer::chat_completion(const json& request) {
                 model_name, prompt_blocks, lcp_threshold);
             
             json slots = get_slots();
-            int slot_id = -1;
             if (slots.is_array() && !slots.empty()) {
                 slot_id = slots[0].value("id", -1);
             }
             
             if (slot_id >= 0) {
-                std::string context_key;
-                
                 if (!restore_key.empty() && ratio >= lcp_threshold) {
                     std::string cache_dir = get_cache_dir();
                     if (restore_slot(slot_id, restore_key, cache_dir)) {
@@ -808,11 +811,28 @@ json LlamaCppServer::chat_completion(const json& request) {
         }
     }
     
-    return normalize_response_model(
+    json response = normalize_response_model(
         forward_request("/v1/chat/completions",
                         llamacpp::sanitize_tool_schema_limits(
                             JsonUtils::with_legacy_max_tokens_alias(modified_request))),
         request);
+    
+    // Save slot and write meta for big requests (non-streaming)
+    if (is_big && slot_id >= 0 && !context_key.empty() && slot_cache_manager_) {
+        auto* slots_server = dynamic_cast<ISlotsServer*>(this);
+        if (slots_server) {
+            std::string cache_dir = get_cache_dir();
+            if (save_slot(slot_id, context_key, cache_dir)) {
+                auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
+                std::string model_cache_dir = slot_cache_manager_->get_cache_dir() + "/" + model_name;
+                slot_cache_manager_->write_meta_file(model_cache_dir, model_name, context_key, prompt_blocks, words_per_block);
+                LOG(DEBUG, "LlamaCpp") << "Saved slot " << slot_id << " key=" << context_key.substr(0, 16) << std::endl;
+            }
+        }
+        unregister_slot_assignment(slot_id);
+    }
+    
+    return response;
 }
 
 json LlamaCppServer::completion(const json& request) {
@@ -1008,7 +1028,8 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                         if (is_big) {
                             int load_version = get_slot_context_version(slot_id);
                             save_guard = std::make_shared<SlotSaveGuard>(
-                                this, slot_id, context_key, load_version, true);
+                                this, slot_id, context_key, load_version, true,
+                                slot_cache_manager_, model_name, prompt, words_per_block);
                         }
                     }
                 }

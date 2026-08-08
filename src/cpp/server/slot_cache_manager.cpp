@@ -250,16 +250,12 @@ std::vector<std::string> SlotCacheManager::prompt_to_word_blocks(const std::stri
         return blocks;
     }
     
-    // Lowercase and extract words using \w+ regex (matching proxycache behavior)
-    std::string lower = prompt;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-    
-    std::regex word_regex(R"(\w+)");
+    // Split prompt into words
+    std::istringstream iss(prompt);
     std::vector<std::string> words;
-    auto words_begin = std::sregex_iterator(lower.begin(), lower.end(), word_regex);
-    auto words_end = std::sregex_iterator();
-    for (auto it = words_begin; it != words_end; ++it) {
-        words.push_back(it->str());
+    std::string word;
+    while (iss >> word) {
+        words.push_back(word);
     }
     
     // Create blocks

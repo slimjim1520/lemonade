@@ -1,12 +1,19 @@
 #include "lemon/slot_cache_guard.h"
+#include "lemon/slot_cache_manager.h"
 #include <lemon/utils/aixlog.hpp>
 
 namespace lemon {
 
 SlotSaveGuard::SlotSaveGuard(WrappedServer* server, int slot_id, const std::string& key, 
-                             int version, bool is_big)
+                             int version, bool is_big,
+                             SlotCacheManager* cache_manager,
+                             const std::string& model_id,
+                             const std::string& prompt,
+                             int words_per_block)
     : server_(server), slot_id_(slot_id), key_(key), version_(version), 
-      is_big_(is_big), saved_(false) {
+      is_big_(is_big), saved_(false),
+      cache_manager_(cache_manager), model_id_(model_id),
+      prompt_(prompt), words_per_block_(words_per_block) {
 }
 
 void SlotSaveGuard::save_to_cache() {
@@ -22,6 +29,13 @@ void SlotSaveGuard::save_to_cache() {
             if (slots_server->save_slot(slot_id_, key_, cache_dir)) {
                 saved_ = true;
                 LOG(DEBUG, "SlotCache") << "Saved slot " << slot_id_ << " with key " << key_ << std::endl;
+                
+                // Write meta file for LCP-based matching (proxycache-style)
+                if (cache_manager_ && !model_id_.empty() && !prompt_.empty()) {
+                    auto prompt_blocks = cache_manager_->prompt_to_word_blocks(prompt_, words_per_block_);
+                    std::string model_cache_dir = cache_manager_->get_cache_dir() + "/" + model_id_;
+                    cache_manager_->write_meta_file(model_cache_dir, model_id_, key_, prompt_blocks, words_per_block_);
+                }
             } else {
                 LOG(WARNING, "SlotCache") << "Failed to save slot " << slot_id_ << std::endl;
             }

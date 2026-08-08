@@ -64,6 +64,9 @@ public:
     double get_hit_rate() const;
     double get_avg_restore_time() const;
     
+    // Get the base cache directory
+    const std::string& get_cache_dir() const { return cache_dir_; }
+    
     // Extract prompt text for similarity comparison
     std::string extract_prompt_for_similarity(const json& request) const;
     
