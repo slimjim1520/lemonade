@@ -236,7 +236,7 @@ export const OPTION_DEFINITIONS: Record<string, OptionDef> = {
   },
   slotCacheLcpThreshold: {
     type: 'numeric',
-    default: 0.8,
+    default: 0.85,
     min: 0,
     max: 1,
     step: 0.05,
