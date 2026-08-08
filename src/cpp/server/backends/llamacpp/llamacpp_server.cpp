@@ -837,7 +837,7 @@ json LlamaCppServer::chat_completion(const json& request) {
             
             model_name = get_model_name();
             json lcp_json = options.get_option("lcp_threshold");
-            double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
+            double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.8;
             
             auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
                 model_name, prompt_blocks, lcp_threshold);
@@ -1055,7 +1055,7 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                     
                     std::string model_name = get_model_name();
                     json lcp_json = options.get_option("lcp_threshold");
-                    double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
+                    double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.8;
                     
                     auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
                         model_name, prompt_blocks, lcp_threshold);

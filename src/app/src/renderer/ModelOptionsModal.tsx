@@ -164,8 +164,11 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
         if (configResponse.ok) {
           const configData = await configResponse.json();
           const hasCustomCacheDir = configData.slot_cache_dir 
-            && configData.slot_cache_dir !== (configData.models_dir + '/slot_cache');
-          setIsSlotCacheConfigured(hasCustomCacheDir);
+            && typeof configData.slot_cache_dir === 'string'
+            && configData.slot_cache_dir.length > 0
+            && configData.slot_cache_dir !== ((configData.models_dir || '') + '/slot_cache');
+          setIsSlotCacheConfigured(!!hasCustomCacheDir);
+          console.log('SlotCache configured:', hasCustomCacheDir, 'slot_cache_dir:', configData.slot_cache_dir);
         }
       } catch (error) {
         console.error('Failed to load options:', error);
