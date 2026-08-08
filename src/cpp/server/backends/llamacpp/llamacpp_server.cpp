@@ -849,15 +849,37 @@ json LlamaCppServer::chat_completion(const json& request) {
             
             if (slot_id >= 0) {
                 if (!restore_key.empty() && ratio >= lcp_threshold) {
-                    std::string cache_dir = get_cache_dir();
-                    if (restore_slot(slot_id, restore_key, cache_dir)) {
+                    // Check if a slot already has this context loaded (no need to restore)
+                    int existing_slot = -1;
+                    {
+                        std::lock_guard<std::mutex> lock(slot_map_mutex_);
+                        for (const auto& [sid, key] : slot_context_map_) {
+                            if (key == restore_key) {
+                                existing_slot = sid;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (existing_slot >= 0) {
+                        // Context already loaded in a slot - just use it directly
+                        slot_id = existing_slot;
                         context_key = restore_key;
                         register_slot_assignment(slot_id, context_key);
-                        LOG(INFO, "LlamaCpp") << "Cache HIT: restored slot " << slot_id 
-                                              << " ratio=" << ratio << std::endl;
+                        LOG(INFO, "LlamaCpp") << "Cache HIT (in-memory): slot " << slot_id 
+                                              << " already has context, ratio=" << ratio << std::endl;
                     } else {
-                        LOG(ERROR, "LlamaCpp") << "Cache restore failed for slot " << slot_id << std::endl;
-                        throw std::runtime_error("Failed to restore cached context");
+                        // Need to restore from disk
+                        std::string cache_dir = get_cache_dir();
+                        if (restore_slot(slot_id, restore_key, cache_dir)) {
+                            context_key = restore_key;
+                            register_slot_assignment(slot_id, context_key);
+                            LOG(INFO, "LlamaCpp") << "Cache HIT: restored slot " << slot_id 
+                                                  << " ratio=" << ratio << std::endl;
+                        } else {
+                            LOG(ERROR, "LlamaCpp") << "Cache restore failed for slot " << slot_id << std::endl;
+                            throw std::runtime_error("Failed to restore cached context");
+                        }
                     }
                 }
                 
@@ -1070,15 +1092,37 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                         std::string context_key;
                         
                         if (!restore_key.empty() && ratio >= lcp_threshold) {
-                            std::string cache_dir = get_cache_dir();
-                            if (restore_slot(slot_id, restore_key, cache_dir)) {
+                            // Check if a slot already has this context loaded (no need to restore)
+                            int existing_slot = -1;
+                            {
+                                std::lock_guard<std::mutex> lock(slot_map_mutex_);
+                                for (const auto& [sid, key] : slot_context_map_) {
+                                    if (key == restore_key) {
+                                        existing_slot = sid;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (existing_slot >= 0) {
+                                // Context already loaded in a slot - just use it directly
+                                slot_id = existing_slot;
                                 context_key = restore_key;
                                 register_slot_assignment(slot_id, context_key);
-                                LOG(INFO, "LlamaCpp") << "Cache HIT (stream): restored slot " << slot_id 
-                                                      << " ratio=" << ratio << std::endl;
+                                LOG(INFO, "LlamaCpp") << "Cache HIT (in-memory, stream): slot " << slot_id 
+                                                      << " already has context, ratio=" << ratio << std::endl;
                             } else {
-                                LOG(ERROR, "LlamaCpp") << "Cache restore failed for slot " << slot_id << std::endl;
-                                throw std::runtime_error("Failed to restore cached context");
+                                // Need to restore from disk
+                                std::string cache_dir = get_cache_dir();
+                                if (restore_slot(slot_id, restore_key, cache_dir)) {
+                                    context_key = restore_key;
+                                    register_slot_assignment(slot_id, context_key);
+                                    LOG(INFO, "LlamaCpp") << "Cache HIT (stream): restored slot " << slot_id 
+                                                          << " ratio=" << ratio << std::endl;
+                                } else {
+                                    LOG(ERROR, "LlamaCpp") << "Cache restore failed for slot " << slot_id << std::endl;
+                                    throw std::runtime_error("Failed to restore cached context");
+                                }
                             }
                         }
                         
