@@ -75,7 +75,9 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
         LOG(DEBUG, "SlotCache") << "find_best_candidate: entry=" << entry.path().filename().string() 
                                 << " is_regular=" << entry.is_regular_file()
                                 << " ext=" << entry.path().extension().string() << std::endl;
-        if (entry.is_regular_file() && entry.path().extension() == ".meta.json") {
+        std::string filename = entry.path().filename().string();
+        if (entry.is_regular_file() && filename.size() > 10 &&
+            filename.substr(filename.size() - 10) == ".meta.json") {
             meta_count++;
             try {
                 // Read and parse the meta file
@@ -210,7 +212,9 @@ std::vector<MetaEntry> SlotCacheManager::scan_meta_files(const std::string& mode
     }
     
     for (const auto& entry : std::filesystem::directory_iterator(meta_dir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".meta.json") {
+        std::string filename = entry.path().filename().string();
+        if (entry.is_regular_file() && filename.size() > 10 &&
+            filename.substr(filename.size() - 10) == ".meta.json") {
             try {
                 std::ifstream file(entry.path());
                 json meta_data;
