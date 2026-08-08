@@ -55,12 +55,26 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
         return {};
     }
     
+    // List directory contents for debugging
+    try {
+        int total_files = 0;
+        for (const auto& e : std::filesystem::directory_iterator(model_dir)) {
+            total_files++;
+        }
+        LOG(DEBUG, "SlotCache") << "find_best_candidate: directory has " << total_files << " total entries" << std::endl;
+    } catch (const std::exception& e) {
+        LOG(WARNING, "SlotCache") << "find_best_candidate: error listing directory: " << e.what() << std::endl;
+    }
+    
     double best_ratio = 0.0;
     std::string best_key;
     int meta_count = 0;
     
     // Scan all meta files
     for (const auto& entry : std::filesystem::directory_iterator(model_dir)) {
+        LOG(DEBUG, "SlotCache") << "find_best_candidate: entry=" << entry.path().filename().string() 
+                                << " is_regular=" << entry.is_regular_file()
+                                << " ext=" << entry.path().extension().string() << std::endl;
         if (entry.is_regular_file() && entry.path().extension() == ".meta.json") {
             meta_count++;
             try {
