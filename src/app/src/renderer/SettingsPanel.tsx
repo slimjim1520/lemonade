@@ -12,6 +12,7 @@ import {
 import ConnectionSettings from './tabs/ConnectionSettings';
 import TTSSettings from './tabs/TTSSettings';
 import LLMChatSettings from './tabs/LLMChatSettings';
+import { serverFetch } from './utils/serverConfig';
 
 interface SettingsPanelProps {
   isVisible: boolean;
@@ -133,7 +134,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isVisible, searchQuery = 
     }));
   };
 
-  const handleResetField = (key: NumericSettingKey | 'enableThinking' | 'collapseThinkingByDefault' | 'baseURL' | 'apiKey' | 'model' | 'userVoice' | 'assistantVoice') => {
+  const handleResetField = (key: NumericSettingKey | 'enableThinking' | 'collapseThinkingByDefault' | 'baseURL' | 'apiKey' | 'slotCacheDir' | 'model' | 'userVoice' | 'assistantVoice') => {
     setSettings((prev) => {
       if (key === 'enableThinking') {
         return {
@@ -208,6 +209,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isVisible, searchQuery = 
     try {
       const saved = await window.api.saveSettings(settings);
       setSettings(mergeWithDefaultSettings(saved));
+      
+      // Sync slot_cache_dir to server config
+      if (settings.slotCacheDir.value) {
+        try {
+          await serverFetch('/internal/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slot_cache_dir: settings.slotCacheDir.value }),
+          });
+        } catch (e) {
+          console.error('Failed to sync slot_cache_dir to server:', e);
+        }
+      }
     } catch (error) {
       console.error('Failed to save settings:', error);
       alert('Failed to save settings. Please try again.');
@@ -239,9 +253,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isVisible, searchQuery = 
       id: 'connection_settings',
       label: 'Connection',
       keywords: [
-        'connection', 'base url', 'api key', 'server', 'endpoint', 'authentication', 'request'
+        'connection', 'base url', 'api key', 'server', 'endpoint', 'authentication', 'request', 'slot cache', 'cache directory'
       ],
-      settingCount: 2,
+      settingCount: 3,
     },
     {
       id: 'llm_chat_settings',

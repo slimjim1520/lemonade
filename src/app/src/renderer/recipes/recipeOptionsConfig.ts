@@ -410,7 +410,7 @@ export type RecipeName = 'llamacpp' | 'whispercpp' | 'moonshine' | 'flm' | 'ryze
  * This mirrors the C++ get_keys_for_recipe() function in recipe_options.cpp
  */
 export const RECIPE_OPTIONS_MAP: Record<RecipeName, string[]> = {
-  'llamacpp': ['ctxSize', 'llamacppBackend', 'llamacppArgs', 'mergeArgs', 'pinned', 'saveOptions', 'slotCacheEnabled', 'slotCacheLcpThreshold', 'slotCacheWordThreshold', 'slotCacheWordsPerBlock'],
+  'llamacpp': ['ctxSize', 'llamacppBackend', 'llamacppArgs', 'mergeArgs', 'pinned', 'saveOptions', 'slotCacheEnabled', 'slotCacheRam', 'slotCacheLcpThreshold', 'slotCacheWordThreshold', 'slotCacheWordsPerBlock'],
   'whispercpp': ['whispercppBackend', 'whispercppArgs', 'mergeArgs', 'pinned', 'saveOptions'],
   'moonshine': ['moonshineArgs', 'mergeArgs', 'pinned', 'saveOptions'],
   'flm': ['ctxSize', 'mergeArgs', 'pinned', 'saveOptions'],
