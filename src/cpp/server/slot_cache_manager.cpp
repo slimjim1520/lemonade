@@ -28,18 +28,18 @@ std::string SlotCacheManager::sha256(const std::string& input) const {
 }
 
 std::pair<std::string, double> SlotCacheManager::find_best_candidate(
-    const std::string& model_name,
-    const std::string& recipe_fingerprint,
+    const std::string& model_id,
     const std::vector<std::string>& prompt_blocks,
     double threshold) {
     
     std::lock_guard<std::mutex> lock(cache_mutex_);
     
     // Build the model-specific directory path
-    std::filesystem::path model_dir = std::filesystem::path(cache_dir_) / model_name / "meta";
+    std::filesystem::path model_dir = std::filesystem::path(cache_dir_) / model_id / "meta";
     
     // Check if directory exists
     if (!std::filesystem::exists(model_dir)) {
+        stats_.misses.fetch_add(1);
         return {};
     }
     
@@ -56,15 +56,13 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
                 file >> meta_data;
                 
                 // Validate the meta file contains expected fields
-                if (!meta_data.contains("model_name") || 
-                    !meta_data.contains("recipe_fingerprint") ||
+                if (!meta_data.contains("model_id") || 
                     !meta_data.contains("blocks")) {
                     continue;
                 }
                 
-                // Check if this meta file matches the current model and recipe
-                if (meta_data["model_name"] != model_name ||
-                    meta_data["recipe_fingerprint"] != recipe_fingerprint) {
+                // Check if this meta file matches the current model
+                if (meta_data["model_id"] != model_id) {
                     continue;
                 }
                 
@@ -135,8 +133,8 @@ bool SlotCacheManager::restore_slot(int slot_id, const std::string& key, const s
     return true;
 }
 
-void SlotCacheManager::write_meta_file(const std::string& cache_dir, const std::string& model_name,
-                                       const std::string& recipe_fingerprint, const std::string& key,
+void SlotCacheManager::write_meta_file(const std::string& cache_dir, const std::string& model_id,
+                                       const std::string& key,
                                        const std::vector<std::string>& blocks, int words_per_block) {
     try {
         std::filesystem::path meta_dir = std::filesystem::path(cache_dir) / "meta";
@@ -144,8 +142,7 @@ void SlotCacheManager::write_meta_file(const std::string& cache_dir, const std::
         
         json meta_data;
         meta_data["key"] = key;
-        meta_data["model_name"] = model_name;
-        meta_data["recipe_fingerprint"] = recipe_fingerprint;
+        meta_data["model_id"] = model_id;
         meta_data["wpb"] = words_per_block;
         meta_data["blocks"] = blocks;
         meta_data["prefix_len"] = blocks.size();
@@ -181,8 +178,7 @@ std::vector<MetaEntry> SlotCacheManager::scan_meta_files(const std::string& mode
                 
                 MetaEntry meta_entry;
                 meta_entry.key = meta_data.value("key", "");
-                meta_entry.model_name = meta_data.value("model_name", "");
-                meta_entry.recipe_fingerprint = meta_data.value("recipe_fingerprint", "");
+                meta_entry.model_id = meta_data.value("model_id", "");
                 meta_entry.prefix_len = meta_data.value("prefix_len", 0);
                 meta_entry.wpb = meta_data.value("wpb", 0);
                 meta_entry.blocks = meta_data.value("blocks", std::vector<std::string>());
@@ -254,12 +250,16 @@ std::vector<std::string> SlotCacheManager::prompt_to_word_blocks(const std::stri
         return blocks;
     }
     
-    // Split prompt into words
-    std::istringstream iss(prompt);
+    // Lowercase and extract words using \w+ regex (matching proxycache behavior)
+    std::string lower = prompt;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    
+    std::regex word_regex(R"(\w+)");
     std::vector<std::string> words;
-    std::string word;
-    while (iss >> word) {
-        words.push_back(word);
+    auto words_begin = std::sregex_iterator(lower.begin(), lower.end(), word_regex);
+    auto words_end = std::sregex_iterator();
+    for (auto it = words_begin; it != words_end; ++it) {
+        words.push_back(it->str());
     }
     
     // Create blocks

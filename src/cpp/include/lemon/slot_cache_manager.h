@@ -16,8 +16,7 @@ namespace lemon {
 
 struct MetaEntry {
     std::string key;
-    std::string model_name;
-    std::string recipe_fingerprint;
+    std::string model_id;
     int prefix_len;
     int wpb;
     std::vector<std::string> blocks;
@@ -39,8 +38,7 @@ public:
 
     // Find the best matching candidate for a prompt
     std::pair<std::string, double> find_best_candidate(
-        const std::string& model_name,
-        const std::string& recipe_fingerprint,
+        const std::string& model_id,
         const std::vector<std::string>& prompt_blocks,
         double threshold);
 
@@ -51,8 +49,8 @@ public:
     bool restore_slot(int slot_id, const std::string& key, const std::string& cache_dir);
 
     // Write meta file for a saved slot
-    void write_meta_file(const std::string& cache_dir, const std::string& model_name,
-                        const std::string& recipe_fingerprint, const std::string& key,
+    void write_meta_file(const std::string& cache_dir, const std::string& model_id,
+                        const std::string& key,
                         const std::vector<std::string>& blocks, int words_per_block);
 
     // Scan meta files for a model

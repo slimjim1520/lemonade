@@ -768,12 +768,11 @@ json LlamaCppServer::chat_completion(const json& request) {
             bool is_big = word_count > big_threshold;
             
             std::string model_name = get_model_name();
-            std::string recipe_fingerprint = options.to_log_string();
             json lcp_json = options.get_option("lcp_threshold");
             double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
             
             auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
-                model_name, recipe_fingerprint, prompt_blocks, lcp_threshold);
+                model_name, prompt_blocks, lcp_threshold);
             
             json slots = get_slots();
             int slot_id = -1;
@@ -798,7 +797,7 @@ json LlamaCppServer::chat_completion(const json& request) {
                 }
                 
                 if (context_key.empty()) {
-                    context_key = sha256(model_name + "_" + recipe_fingerprint + "_" + prompt);
+                    context_key = sha256(model_name + "\n" + prompt);
                     register_slot_assignment(slot_id, context_key);
                     LOG(DEBUG, "LlamaCpp") << "Cache MISS: new slot " << slot_id << std::endl;
                 }
@@ -968,12 +967,11 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                     bool is_big = word_count > big_threshold;
                     
                     std::string model_name = get_model_name();
-                    std::string recipe_fingerprint = options.to_log_string();
                     json lcp_json = options.get_option("lcp_threshold");
                     double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
                     
                     auto [restore_key, ratio] = slot_cache_manager_->find_best_candidate(
-                        model_name, recipe_fingerprint, prompt_blocks, lcp_threshold);
+                        model_name, prompt_blocks, lcp_threshold);
                     
                     json slots = get_slots();
                     int slot_id = -1;
@@ -998,7 +996,7 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                         }
                         
                         if (context_key.empty()) {
-                            context_key = sha256(model_name + "_" + recipe_fingerprint + "_" + prompt);
+                            context_key = sha256(model_name + "\n" + prompt);
                             register_slot_assignment(slot_id, context_key);
                             LOG(DEBUG, "LlamaCpp") << "Cache MISS (stream): new slot " << slot_id << std::endl;
                         }
