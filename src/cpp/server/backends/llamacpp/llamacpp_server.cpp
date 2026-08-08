@@ -700,20 +700,76 @@ void LlamaCppServer::unload() {
 bool LlamaCppServer::downsize() {
     LOG(INFO, "LlamaCpp") << "Downsizing model by saving and erasing KV cache..." << std::endl;
     
-    // Save all active slots before eviction (proxycache-style)
-    // Each message chain keeps its unique ID, old cache is replaced
+    // Save all active slots to disk cache before eviction (proxycache-style)
     std::lock_guard<std::mutex> lock(slot_map_mutex_);
     std::string cache_dir = get_cache_dir();
+    std::string model_name = get_model_name();
+    
+    // Check if slot cache is enabled
+    const RecipeOptions& options = get_recipe_options();
+    json slot_cache_enabled_json = options.get_option("slot_cache_enabled");
+    bool slot_cache_enabled = slot_cache_enabled_json.is_boolean() ? slot_cache_enabled_json.get<bool>() : false;
+    
+    json wpb_json = options.get_option("words_per_block");
+    int words_per_block = wpb_json.is_number_integer() ? wpb_json.get<int>() : 100;
     
     for (const auto& [slot_id, context_key] : slot_context_map_) {
         if (!context_key.empty()) {
-            // Save with the context_key as filename (replaces old cache for this chain)
             try {
-                save_slot(slot_id, context_key, cache_dir);
-                LOG(DEBUG, "LlamaCpp") << "Saved slot " << slot_id 
-                                       << " key=" << context_key.substr(0, 16) << std::endl;
+                LOG(DEBUG, "LlamaCpp") << "Downsize: saving slot " << slot_id 
+                                       << " key=" << context_key.substr(0, 16) 
+                                       << " to " << cache_dir << std::endl;
+                
+                // Save slot context via llama-server
+                if (save_slot(slot_id, context_key, cache_dir)) {
+                    LOG(DEBUG, "LlamaCpp") << "Downsize: saved slot " << slot_id 
+                                           << " key=" << context_key.substr(0, 16) << std::endl;
+                    
+                    // Write meta file for LCP-based matching (if cache enabled)
+                    if (slot_cache_enabled && slot_cache_manager_) {
+                        // Get the prompt from the slot context (stored at save time)
+                        // We need the prompt to compute word blocks for the meta file
+                        // Since we don't have the original prompt here, we store the blocks
+                        // directly from the slot_context_map_ using a secondary map
+                        // For now, use the context_key as a lookup to get blocks from existing meta
+                        
+                        // Check if meta file already exists (from a prior save)
+                        std::string safe_model_id = model_name;
+                        size_t pos = 0;
+                        while ((pos = safe_model_id.find('/', pos)) != std::string::npos) {
+                            safe_model_id.replace(pos, 1, "_");
+                            pos += 1;
+                        }
+                        std::filesystem::path meta_path = std::filesystem::path(cache_dir) / "meta" / (context_key + ".meta.json");
+                        
+                        if (std::filesystem::exists(meta_path)) {
+                            // Meta file already exists - just touch the timestamp
+                            try {
+                                std::ifstream meta_file(meta_path);
+                                json meta_data;
+                                meta_file >> meta_data;
+                                meta_file.close();
+                                
+                                auto now = std::chrono::system_clock::now();
+                                meta_data["timestamp"] = std::chrono::duration<double>(now.time_since_epoch()).count();
+                                
+                                std::ofstream out_file(meta_path);
+                                out_file << meta_data.dump(2);
+                                
+                                LOG(DEBUG, "LlamaCpp") << "Downsize: updated meta timestamp for slot " << slot_id << std::endl;
+                            } catch (const std::exception& e) {
+                                LOG(WARNING, "LlamaCpp") << "Downsize: failed to update meta: " << e.what() << std::endl;
+                            }
+                        } else {
+                            LOG(DEBUG, "LlamaCpp") << "Downsize: no existing meta for slot " << slot_id 
+                                                   << " (will be created on next save)" << std::endl;
+                        }
+                    }
+                } else {
+                    LOG(WARNING, "LlamaCpp") << "Downsize: failed to save slot " << slot_id << std::endl;
+                }
             } catch (const std::exception& e) {
-                LOG(WARNING, "LlamaCpp") << "Failed to save slot " << slot_id 
+                LOG(WARNING, "LlamaCpp") << "Downsize: failed to save slot " << slot_id 
                                          << " on downsize: " << e.what() << std::endl;
             }
         }
