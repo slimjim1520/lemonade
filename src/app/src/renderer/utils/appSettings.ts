@@ -52,6 +52,7 @@ export interface AppSettings {
   collapseThinkingByDefault: BooleanSetting;
   baseURL: StringSetting;
   apiKey: StringSetting;
+  slotCacheDir: StringSetting;
   layout: LayoutSettings;
   tts: TTSSettings;
   modelManager: ModelManagerSettings;
@@ -62,6 +63,7 @@ type BaseSettingValues = Record<NumericSettingKey, number> & {
   collapseThinkingByDefault: boolean;
   baseURL: string;
   apiKey: string;
+  slotCacheDir: string;
 };
 
 export const BASE_SETTING_VALUES: BaseSettingValues = {
@@ -119,6 +121,7 @@ export const createDefaultSettings = (): AppSettings => ({
   collapseThinkingByDefault: { value: BASE_SETTING_VALUES.collapseThinkingByDefault, useDefault: true },
   baseURL: { value: BASE_SETTING_VALUES.baseURL, useDefault: true },
   apiKey: { value: BASE_SETTING_VALUES.apiKey, useDefault: true },
+  slotCacheDir: { value: BASE_SETTING_VALUES.slotCacheDir, useDefault: true },
   layout: { ...DEFAULT_LAYOUT_SETTINGS },
   tts: {...DEFAULT_TTS_SETTINGS},
   modelManager: { ...DEFAULT_MODEL_MANAGER_SETTINGS },
@@ -133,6 +136,7 @@ export const cloneSettings = (settings: AppSettings): AppSettings => ({
   collapseThinkingByDefault: { ...settings.collapseThinkingByDefault },
   baseURL: { ...settings.baseURL },
   apiKey: { ...settings.apiKey },
+  slotCacheDir: { ...settings.slotCacheDir },
   layout: { ...settings.layout },
   tts: { ...settings.tts },
   modelManager: { ...settings.modelManager },
@@ -244,6 +248,24 @@ export const mergeWithDefaultSettings = (incoming?: Partial<AppSettings>): AppSe
         : defaults.apiKey.value;
 
     defaults.apiKey = {
+      value,
+      useDefault,
+    };
+  }
+
+  const rawSlotCacheDir = incoming.slotCacheDir;
+  if (rawSlotCacheDir && typeof rawSlotCacheDir === 'object') {
+    const useDefault =
+      typeof rawSlotCacheDir.useDefault === 'boolean'
+        ? rawSlotCacheDir.useDefault
+        : defaults.slotCacheDir.useDefault;
+    const value = useDefault
+      ? defaults.slotCacheDir.value
+      : typeof rawSlotCacheDir.value === 'string'
+        ? rawSlotCacheDir.value
+        : defaults.slotCacheDir.value;
+
+    defaults.slotCacheDir = {
       value,
       useDefault,
     };
