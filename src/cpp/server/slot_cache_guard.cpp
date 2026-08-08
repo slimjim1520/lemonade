@@ -25,15 +25,27 @@ void SlotSaveGuard::save_to_cache() {
         int context_version = slots_server->get_slot_context_version(slot_id_);
         
         if (context_key == key_ && context_version == version_ && server_->is_backend_alive()) {
-            std::string cache_dir = "";
-            if (slots_server->save_slot(slot_id_, key_, cache_dir)) {
+            // Sanitize model name for filesystem path (same as LlamaCppServer::get_cache_dir)
+            std::string safe_model_id = model_id_;
+            size_t pos = 0;
+            while ((pos = safe_model_id.find('/', pos)) != std::string::npos) {
+                safe_model_id.replace(pos, 1, "_");
+                pos += 1;
+            }
+            std::string model_cache_dir = cache_manager_->get_cache_dir() + "/" + safe_model_id;
+            
+            LOG(DEBUG, "SlotCache") << "save_to_cache: slot=" << slot_id_ 
+                                   << " key=" << key_.substr(0, 16) 
+                                   << " model=" << model_id_
+                                   << " cache_dir=" << model_cache_dir << std::endl;
+            
+            if (slots_server->save_slot(slot_id_, key_, model_cache_dir)) {
                 saved_ = true;
                 LOG(DEBUG, "SlotCache") << "Saved slot " << slot_id_ << " with key " << key_ << std::endl;
                 
                 // Write meta file for LCP-based matching (proxycache-style)
                 if (cache_manager_ && !model_id_.empty() && !prompt_.empty()) {
                     auto prompt_blocks = cache_manager_->prompt_to_word_blocks(prompt_, words_per_block_);
-                    std::string model_cache_dir = cache_manager_->get_cache_dir() + "/" + model_id_;
                     cache_manager_->write_meta_file(model_cache_dir, model_id_, key_, prompt_blocks, words_per_block_);
                 }
             } else {
@@ -41,7 +53,9 @@ void SlotSaveGuard::save_to_cache() {
             }
         } else {
             LOG(DEBUG, "SlotCache") << "Skipping save for slot " << slot_id_ 
-                                    << " - context mismatch or server not alive" << std::endl;
+                                    << " - context_key match: " << (context_key == key_)
+                                    << " version match: " << (context_version == version_)
+                                    << " server alive: " << server_->is_backend_alive() << std::endl;
         }
         
         slots_server->unregister_slot_assignment(slot_id_);

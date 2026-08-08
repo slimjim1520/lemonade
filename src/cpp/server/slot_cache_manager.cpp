@@ -34,21 +34,35 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
     
     std::lock_guard<std::mutex> lock(cache_mutex_);
     
-    // Build the model-specific directory path
-    std::filesystem::path model_dir = std::filesystem::path(cache_dir_) / model_id / "meta";
+    // Build the model-specific directory path (sanitize model_id for filesystem)
+    std::string safe_model_id = model_id;
+    size_t pos = 0;
+    while ((pos = safe_model_id.find('/', pos)) != std::string::npos) {
+        safe_model_id.replace(pos, 1, "_");
+        pos += 1;
+    }
+    std::filesystem::path model_dir = std::filesystem::path(cache_dir_) / safe_model_id / "meta";
+    
+    LOG(DEBUG, "SlotCache") << "find_best_candidate: model_id=" << model_id 
+                            << " blocks=" << prompt_blocks.size()
+                            << " threshold=" << threshold
+                            << " dir=" << model_dir.string() << std::endl;
     
     // Check if directory exists
     if (!std::filesystem::exists(model_dir)) {
+        LOG(DEBUG, "SlotCache") << "find_best_candidate: directory does not exist: " << model_dir << std::endl;
         stats_.misses.fetch_add(1);
         return {};
     }
     
     double best_ratio = 0.0;
     std::string best_key;
+    int meta_count = 0;
     
     // Scan all meta files
     for (const auto& entry : std::filesystem::directory_iterator(model_dir)) {
         if (entry.is_regular_file() && entry.path().extension() == ".meta.json") {
+            meta_count++;
             try {
                 // Read and parse the meta file
                 std::ifstream file(entry.path());
@@ -58,11 +72,13 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
                 // Validate the meta file contains expected fields
                 if (!meta_data.contains("model_id") || 
                     !meta_data.contains("blocks")) {
+                    LOG(DEBUG, "SlotCache") << "find_best_candidate: meta file missing fields: " << entry.path() << std::endl;
                     continue;
                 }
                 
                 // Check if this meta file matches the current model
                 if (meta_data["model_id"] != model_id) {
+                    LOG(DEBUG, "SlotCache") << "find_best_candidate: model_id mismatch: " << meta_data["model_id"] << " != " << model_id << std::endl;
                     continue;
                 }
                 
@@ -70,16 +86,23 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
                 auto meta_blocks = meta_data["blocks"].get<std::vector<std::string>>();
                 double ratio = compute_lcp_ratio(prompt_blocks, meta_blocks);
                 
+                LOG(DEBUG, "SlotCache") << "find_best_candidate: candidate ratio=" << ratio 
+                                        << " (req_blocks=" << prompt_blocks.size() 
+                                        << " meta_blocks=" << meta_blocks.size() << ")" << std::endl;
+                
                 if (ratio >= threshold && ratio > best_ratio) {
                     best_ratio = ratio;
                     best_key = meta_data["key"];
                 }
             } catch (const std::exception& e) {
-                // Skip corrupted or unreadable meta files
+                LOG(WARNING, "SlotCache") << "find_best_candidate: error reading meta file: " << e.what() << std::endl;
                 continue;
             }
         }
     }
+    
+    LOG(DEBUG, "SlotCache") << "find_best_candidate: scanned " << meta_count << " meta files, "
+                            << "best_ratio=" << best_ratio << " best_key=" << (best_key.empty() ? "(none)" : best_key.substr(0, 16)) << std::endl;
     
     // Track stats
     if (!best_key.empty()) {
@@ -154,7 +177,10 @@ void SlotCacheManager::write_meta_file(const std::string& cache_dir, const std::
         std::ofstream file(meta_file);
         file << meta_data.dump(2);
         
-        LOG(DEBUG, "SlotCache") << "Wrote meta file: " << meta_file << std::endl;
+        LOG(DEBUG, "SlotCache") << "Wrote meta file: " << meta_file 
+                                << " model_id=" << model_id 
+                                << " blocks=" << blocks.size() 
+                                << " wpb=" << words_per_block << std::endl;
     } catch (const std::exception& e) {
         LOG(WARNING, "SlotCache") << "Failed to write meta file: " << e.what() << std::endl;
     }
@@ -226,10 +252,23 @@ std::string SlotCacheManager::extract_prompt_for_similarity(const json& request)
     std::string prompt = "";
     
     if (request.contains("messages")) {
-        // Extract content from all messages
+        // Extract content from all messages (matching proxycache raw_prefix)
         for (const auto& message : request["messages"]) {
             if (message.contains("content")) {
-                std::string content = message["content"].get<std::string>();
+                std::string content;
+                if (message["content"].is_string()) {
+                    content = message["content"].get<std::string>();
+                } else {
+                    content = message["content"].dump();
+                }
+                // Strip whitespace (matching proxycache)
+                size_t start = content.find_first_not_of(" \t\n\r");
+                size_t end = content.find_last_not_of(" \t\n\r");
+                if (start != std::string::npos && end != std::string::npos) {
+                    content = content.substr(start, end - start + 1);
+                } else {
+                    content = "";
+                }
                 if (!content.empty()) {
                     if (!prompt.empty()) {
                         prompt += "\n\n";
@@ -240,6 +279,7 @@ std::string SlotCacheManager::extract_prompt_for_similarity(const json& request)
         }
     }
     
+    LOG(DEBUG, "SlotCache") << "extract_prompt_for_similarity: " << prompt.size() << " chars" << std::endl;
     return prompt;
 }
 
@@ -250,13 +290,21 @@ std::vector<std::string> SlotCacheManager::prompt_to_word_blocks(const std::stri
         return blocks;
     }
     
-    // Split prompt into words
-    std::istringstream iss(prompt);
+    // Lowercase and extract words using \w+ regex (matching proxycache behavior)
+    std::string lower = prompt;
+    std::transform(lower.begin(), lower.end(), lower.begin(), 
+                    [](unsigned char c) { return std::tolower(c); });
+    
+    std::regex word_regex(R"(\w+)");
     std::vector<std::string> words;
-    std::string word;
-    while (iss >> word) {
-        words.push_back(word);
+    auto words_begin = std::sregex_iterator(lower.begin(), lower.end(), word_regex);
+    auto words_end = std::sregex_iterator();
+    for (auto it = words_begin; it != words_end; ++it) {
+        words.push_back(it->str());
     }
+    
+    LOG(DEBUG, "SlotCache") << "prompt_to_word_blocks: " << words.size() << " words, " 
+                            << (words.size() + words_per_block - 1) / words_per_block << " blocks" << std::endl;
     
     // Create blocks
     for (size_t i = 0; i < words.size(); i += words_per_block) {

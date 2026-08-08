@@ -773,6 +773,12 @@ json LlamaCppServer::chat_completion(const json& request) {
             int big_threshold = threshold_json.is_number_integer() ? threshold_json.get<int>() : 500;
             is_big = word_count > big_threshold;
             
+            LOG(DEBUG, "LlamaCpp") << "Slot cache enabled: prompt_chars=" << prompt.size() 
+                                   << " blocks=" << prompt_blocks.size()
+                                   << " words~=" << word_count 
+                                   << " is_big=" << is_big 
+                                   << " threshold=" << big_threshold << std::endl;
+            
             model_name = get_model_name();
             json lcp_json = options.get_option("lcp_threshold");
             double lcp_threshold = lcp_json.is_number() ? lcp_json.get<double>() : 0.6;
@@ -822,11 +828,16 @@ json LlamaCppServer::chat_completion(const json& request) {
         auto* slots_server = dynamic_cast<ISlotsServer*>(this);
         if (slots_server) {
             std::string cache_dir = get_cache_dir();
+            LOG(DEBUG, "LlamaCpp") << "Non-streaming save: slot_id=" << slot_id 
+                                   << " key=" << context_key.substr(0, 16) 
+                                   << " cache_dir=" << cache_dir << std::endl;
             if (save_slot(slot_id, context_key, cache_dir)) {
                 auto prompt_blocks = slot_cache_manager_->prompt_to_word_blocks(prompt, words_per_block);
-                std::string model_cache_dir = slot_cache_manager_->get_cache_dir() + "/" + model_name;
-                slot_cache_manager_->write_meta_file(model_cache_dir, model_name, context_key, prompt_blocks, words_per_block);
+                // Use get_cache_dir() for consistent path (same as find_best_candidate)
+                slot_cache_manager_->write_meta_file(cache_dir, model_name, context_key, prompt_blocks, words_per_block);
                 LOG(DEBUG, "LlamaCpp") << "Saved slot " << slot_id << " key=" << context_key.substr(0, 16) << std::endl;
+            } else {
+                LOG(WARNING, "LlamaCpp") << "Failed to save slot " << slot_id << std::endl;
             }
         }
         unregister_slot_assignment(slot_id);
