@@ -59,26 +59,12 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
         return {};
     }
     
-    // List directory contents for debugging
-    try {
-        int total_files = 0;
-        for (const auto& e : std::filesystem::directory_iterator(model_dir)) {
-            total_files++;
-        }
-        LOG(DEBUG, "SlotCache") << "find_best_candidate: directory has " << total_files << " total entries" << std::endl;
-    } catch (const std::exception& e) {
-        LOG(WARNING, "SlotCache") << "find_best_candidate: error listing directory: " << e.what() << std::endl;
-    }
-    
     double best_ratio = 0.0;
     std::string best_key;
     int meta_count = 0;
     
     // Scan all meta files
     for (const auto& entry : std::filesystem::directory_iterator(model_dir)) {
-        LOG(DEBUG, "SlotCache") << "find_best_candidate: entry=" << entry.path().filename().string() 
-                                << " is_regular=" << entry.is_regular_file()
-                                << " ext=" << entry.path().extension().string() << std::endl;
         std::string filename = entry.path().filename().string();
         if (entry.is_regular_file() && filename.size() > 10 &&
             filename.substr(filename.size() - 10) == ".meta.json") {
@@ -92,13 +78,11 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
                 // Validate the meta file contains expected fields
                 if (!meta_data.contains("model_id") || 
                     !meta_data.contains("blocks")) {
-                    LOG(DEBUG, "SlotCache") << "find_best_candidate: meta file missing fields: " << entry.path() << std::endl;
                     continue;
                 }
                 
                 // Check if this meta file matches the current model
                 if (meta_data["model_id"] != model_id) {
-                    LOG(DEBUG, "SlotCache") << "find_best_candidate: model_id mismatch: " << meta_data["model_id"] << " != " << model_id << std::endl;
                     continue;
                 }
                 
@@ -106,16 +90,11 @@ std::pair<std::string, double> SlotCacheManager::find_best_candidate(
                 auto meta_blocks = meta_data["blocks"].get<std::vector<std::string>>();
                 double ratio = compute_lcp_ratio(prompt_blocks, meta_blocks);
                 
-                LOG(DEBUG, "SlotCache") << "find_best_candidate: candidate ratio=" << ratio 
-                                        << " (req_blocks=" << prompt_blocks.size() 
-                                        << " meta_blocks=" << meta_blocks.size() << ")" << std::endl;
-                
                 if (ratio >= threshold && ratio > best_ratio) {
                     best_ratio = ratio;
                     best_key = meta_data["key"];
                 }
             } catch (const std::exception& e) {
-                LOG(WARNING, "SlotCache") << "find_best_candidate: error reading meta file: " << e.what() << std::endl;
                 continue;
             }
         }
