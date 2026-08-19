@@ -997,6 +997,7 @@ json LlamaCppServer::chat_completion(const json& request) {
                 modified_request["id_slot"] = slot_id;
                 modified_request["slot_id"] = slot_id;
                 modified_request["cache_prompt"] = true;
+                modified_request["n_keep"] = -1;
             }
         }
     }
@@ -1291,6 +1292,7 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                         request["id_slot"] = slot_id;
                         request["slot_id"] = slot_id;
                         request["cache_prompt"] = true;
+                        request["n_keep"] = -1;
                         
                         // Create SlotSaveGuard for automatic save on stream completion.
                         // Always save when slot caching is enabled so the meta file
