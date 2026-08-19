@@ -5,6 +5,7 @@
 #include "lemon/wrapped_server.h"
 #include "lemon/backends/backend_utils.h"
 #include <string>
+#include <vector>
 
 namespace lemon {
 namespace backends {
@@ -16,7 +17,8 @@ public:
 
     LlamaCppServer(const std::string& log_level,
                    ModelManager* model_manager,
-                   BackendManager* backend_manager);
+                   BackendManager* backend_manager,
+                   SlotCacheManager* slot_cache_manager = nullptr);
 
     ~LlamaCppServer() override;
 
@@ -40,7 +42,8 @@ public:
                                    httplib::DataSink& sink,
                                    bool sse = true,
                                    long timeout_seconds = 0,
-                                   TelemetryCallback telemetry_callback = nullptr) override;
+                                   TelemetryCallback telemetry_callback = nullptr,
+                                   std::function<void()> on_stream_complete = nullptr) override;
 
     // IEmbeddingsServer implementation
     json embeddings(const json& request) override;
@@ -51,6 +54,19 @@ public:
     // ISlotsServer implementation
     json get_slots() override;
     json slots_action(int slot_id, const std::string& action, const json& request_body) override;
+    void register_slot_assignment(int slot_id, const std::string& context_key,
+                                  const std::vector<std::string>& prompt_blocks = {},
+                                  int words_per_block = 0) override;
+    void unregister_slot_assignment(int slot_id) override;
+    std::string get_slot_context_key(int slot_id) const override;
+    int get_slot_context_version(int slot_id) const;
+    
+    // Slot save/restore functionality
+    bool restore_slot(int slot_id, const std::string& key, const std::string& cache_dir);
+    bool save_slot(int slot_id, const std::string& key, const std::string& cache_dir);
+    
+    // Helper for hashing
+    std::string sha256(const std::string& input) const;
 
     // ITokenizerServer implementation
     json tokenize(const json& request) override;
@@ -60,6 +76,24 @@ private:
     // in the OpenAI `model` field. Rewrite it to the client-facing model id so
     // responses don't leak absolute filesystem paths (and usernames).
     json normalize_response_model(json response, const json& request) const;
+    
+    // Get the cache directory for this model
+    std::string get_cache_dir() const;
+    
+    // Save all active slots (KV cache + meta files) to disk. Used by both
+    // downsize() and unload() so cached state survives eviction/shutdown.
+    void save_active_slots_to_cache();
+    
+    // Slot assignment tracking
+    mutable std::mutex slot_map_mutex_;
+    std::map<int, std::string> slot_context_map_;
+    std::map<int, int> slot_context_versions_;
+    std::map<int, std::vector<std::string>> slot_prompt_blocks_;
+    std::map<int, int> slot_wpb_;
+    int load_version_ = 0;
+    
+    // Slot cache manager for LCP-based cache lookup
+    SlotCacheManager* slot_cache_manager_ = nullptr;
 };
 
 namespace llamacpp {

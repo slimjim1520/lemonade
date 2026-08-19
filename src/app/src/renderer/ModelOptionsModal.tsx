@@ -96,6 +96,7 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
   const [exportError, setExportError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isModelNameCopied, setIsModelNameCopied] = useState(false);
+  const [isSlotCacheConfigured, setIsSlotCacheConfigured] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const modelNameCopyTimeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -105,6 +106,7 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     let isMounted = true;
     setNumericDrafts({});
     setIsModelNameCopied(false);
+    setIsSlotCacheConfigured(false);
     if (modelNameCopyTimeoutIdRef.current) {
       clearTimeout(modelNameCopyTimeoutIdRef.current);
       modelNameCopyTimeoutIdRef.current = null;
@@ -128,31 +130,41 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
       }
 
       try {
-        const response = await serverFetch(`/models/${encodeURIComponent(model)}`);
-        if (!response.ok) {
-          throw new Error(`Failed to load model options (${response.status})`);
+        const [modelResponse, configResponse] = await Promise.all([
+          serverFetch(`/models/${encodeURIComponent(model)}`),
+          serverFetch('/internal/config')
+        ]);
+        
+        if (!modelResponse.ok) {
+          throw new Error(`Failed to load model options (${modelResponse.status})`);
         }
-        const data = await response.json();
+        const modelData = await modelResponse.json();
 
         if (!isMounted) return;
 
         setModelName(model);
-        setModelInfo({ ...data });
+        setModelInfo({ ...modelData });
 
-        const checkpoint = typeof data.checkpoint === 'string' ? data.checkpoint : '';
+        const checkpoint = typeof modelData.checkpoint === 'string' ? modelData.checkpoint : '';
         const repoId = checkpoint.replace(/:.+$/, '');
-        const registrySource = data.registry_source
-          ?? (data.source === 'modelscope' || data.source === 'huggingface'
-            ? data.source
+        const registrySource = modelData.registry_source
+          ?? (modelData.source === 'modelscope' || modelData.source === 'huggingface'
+            ? modelData.source
             : 'huggingface');
         const registryUrl = registrySource === 'modelscope'
           ? `https://modelscope.cn/models/${repoId}/summary`
           : `https://huggingface.co/${repoId}`;
         setModelUrl(checkpoint ? registryUrl : '');
 
-        const recipe = data.recipe as string;
-        const recipeOptions = data.recipe_options ?? {};
+        const recipe = modelData.recipe as string;
+        const recipeOptions = modelData.recipe_options ?? {};
         setOptions(apiToRecipeOptions(recipe, recipeOptions));
+
+        // Check if slot cache is configured (always true now — works with
+        // default dir too)
+        if (configResponse.ok) {
+          setIsSlotCacheConfigured(true);
+        }
       } catch (error) {
         console.error('Failed to load options:', error);
         if (isMounted) {
@@ -499,6 +511,65 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     );
   };
 
+  const renderSlotCacheRamField = (key: string) => {
+    const def = getOptionDefinition(key);
+    if (!def || def.type !== 'numeric') return null;
+
+    const value = getOptionValue<number>(key);
+    if (value === undefined) return null;
+
+    const displayValue = numericDrafts[key] ?? String(value);
+    const min = def.min ?? 0;
+    const max = def.max ?? 65536;
+    const step = def.step ?? 512;
+
+    const marks = [0, 2048, 4096, 8192, 16384, 32768, 65536].filter(v => v >= min && v <= max);
+
+    return (
+      <div className="form-section" key={key}>
+        <label className="form-label" title={def.description}>{def.label.toLowerCase()}</label>
+        <div className="context-size-controls">
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(e) => {
+              clearNumericDraft(key);
+              handleNumericChange(key, Number(e.target.value));
+            }}
+            className="context-size-slider"
+            aria-label="Slot cache RAM"
+          />
+          <input
+            type="text"
+            value={displayValue}
+            onChange={(e) => {
+              setNumericDrafts(prev => ({ ...prev, [key]: e.target.value }));
+            }}
+            onBlur={() => {
+              const draftValue = numericDrafts[key];
+              if (draftValue !== undefined) {
+                commitNumericDraft(key, draftValue);
+              }
+              clearNumericDraft(key);
+            }}
+            className="form-input context-size-input"
+            placeholder="auto"
+            inputMode="numeric"
+          />
+          <span className="context-size-unit">MB</span>
+        </div>
+        <div className="context-size-scale" aria-hidden="true">
+          {marks.map(m => (
+            <span key={m}>{m === 0 ? '0' : m >= 1024 ? `${m / 1024}GB` : `${m}MB`}</span>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // Render a numeric input field
   const renderNumericField = (key: string) => {
     const def = getOptionDefinition(key);
@@ -506,6 +577,11 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
 
     if (key === 'ctxSize' && modelInfo?.max_context_window) {
       return renderContextSizeField(key);
+    }
+
+    // Render slot cache RAM with slider + input
+    if (key === 'slotCacheRam' && isSlotCacheConfigured && options?.slotCacheEnabled?.value === true) {
+      return renderSlotCacheRamField(key);
     }
 
     const value = getOptionValue<number>(key);
@@ -595,6 +671,10 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     const useDefault = getOptionUseDefault(key);
     if (value === undefined) return null;
 
+    // Special handling for slotCacheEnabled - add delete cache link
+    const isSlotCacheEnabled = key === 'slotCacheEnabled';
+    const showDeleteLink = isSlotCacheEnabled && value && !useDefault;
+
     return (
       <div
         className={`settings-section ${useDefault ? 'settings-section-default' : ''}`}
@@ -602,14 +682,26 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
       >
         <div className="settings-label-row">
           <span className="settings-label-text">{def.label}</span>
-          <button
-            type="button"
-            className="settings-field-reset"
-            onClick={() => handleResetField(key)}
-            disabled={useDefault}
-          >
-            Reset
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              className="settings-field-reset"
+              onClick={() => handleResetField(key)}
+              disabled={useDefault}
+            >
+              Reset
+            </button>
+            {showDeleteLink && (
+              <button
+                type="button"
+                className="settings-field-reset"
+                onClick={() => handleDeleteCache()}
+                title="Delete cached contexts for this model"
+              >
+                Delete Cache
+              </button>
+            )}
+          </div>
         </div>
         <label className="settings-checkbox-label">
           <input
@@ -628,9 +720,37 @@ const ModelOptionsModal: React.FC<SettingsModalProps> = ({ isOpen, onCancel, onS
     );
   };
 
+  const handleDeleteCache = async () => {
+    if (!modelName) return;
+    try {
+      const response = await serverFetch(`/models/${encodeURIComponent(modelName)}/cache`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to delete cache (${response.status})`);
+      }
+      // Show success message or refresh
+      console.log('Cache deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete cache:', error);
+    }
+  };
+
   // Render all options for the current recipe
   const renderOptions = () => {
+    const isSlotCacheEnabled = options?.slotCacheEnabled?.value === true;
+    const isLlamaRecipe = modelInfo?.recipe === 'llamacpp';
+    
     return availableOptions.map(key => {
+      // Skip all slot cache options if not configured or not llama recipe
+      if (key.startsWith('slotCache') && (!isSlotCacheConfigured || !isLlamaRecipe)) {
+        return null;
+      }
+      // Skip slot cache options (except the enable checkbox) if cache is disabled
+      if (key.startsWith('slotCache') && key !== 'slotCacheEnabled' && !isSlotCacheEnabled) {
+        return null;
+      }
+      
       const def = getOptionDefinition(key);
       if (!def) return null;
 

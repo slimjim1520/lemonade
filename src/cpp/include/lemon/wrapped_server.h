@@ -492,11 +492,12 @@ public:
     using TelemetryCallback = std::function<void(const StreamingProxy::TelemetryData& telemetry)>;
 
     virtual void forward_streaming_request(const std::string& endpoint,
-                                           const std::string& request_body,
-                                           httplib::DataSink& sink,
-                                           bool sse = true,
-                                           long timeout_seconds = 0,
-                                           TelemetryCallback telemetry_callback = nullptr);
+                                            const std::string& request_body,
+                                            httplib::DataSink& sink,
+                                            bool sse = true,
+                                            long timeout_seconds = 0,
+                                            TelemetryCallback telemetry_callback = nullptr,
+                                            std::function<void()> on_stream_complete = nullptr);
 
     // Get the server address
     std::string get_address() const {

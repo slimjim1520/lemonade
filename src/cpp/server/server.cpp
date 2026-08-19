@@ -29,6 +29,7 @@
 #include "lemon/thinking_controls.h"
 #include "lemon/prometheus_metrics.h"
 #include "lemon/runtime_config.h"
+#include "lemon/slot_cache_manager.h"
 #include "telemetry.h"
 #include "lemon/system_info.h"
 #include "lemon/version.h"
@@ -391,6 +392,14 @@ Server::Server(std::shared_ptr<RuntimeConfig> config, const std::string& cache_d
                                        model_manager_.get(),
                                        backend_manager_.get());
     router_->set_cloud_registry(cloud_registry_.get());
+
+    // Run startup slot cache cleanup to clear stale entries from previous sessions
+    if (auto* cache_mgr = router_->get_slot_cache_manager()) {
+        double max_age = config_->slot_cache_max_age_seconds();
+        double max_gb = config_->slot_cache_max_gb();
+        if (max_age > 0) cache_mgr->cleanup_by_age(max_age, false);
+        if (max_gb > 0) cache_mgr->cleanup_by_size(max_gb, false);
+    }
 
     // When a router collection is added, edited, or removed (via the API or an
     // on-disk edit), reclaim any routing helper no remaining policy references.
@@ -1269,6 +1278,40 @@ void Server::setup_routes(httplib::Server &web_server) {
 
     register_post("delete", [this](const httplib::Request& req, httplib::Response& res) {
         handle_delete(req, res);
+    });
+
+    // Slot cache management
+    web_server.Delete(R"(/api/v0/models/(.+)/cache)", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_delete_model_cache(req, res);
+    });
+    web_server.Delete(R"(/api/v1/models/(.+)/cache)", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_delete_model_cache(req, res);
+    });
+    web_server.Delete(R"(/v0/models/(.+)/cache)", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_delete_model_cache(req, res);
+    });
+    web_server.Delete(R"(/v1/models/(.+)/cache)", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_delete_model_cache(req, res);
+    });
+
+    // Slot cache inspection and cleanup endpoints (quad-prefix)
+    register_get("slot-cache", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slot_cache_inspect(req, res);
+    });
+    register_post("slot-cache", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slot_cache_clean(req, res);
+    });
+    web_server.Delete(R"(/api/v0/slot-cache/(.+))", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slot_cache_clean_model(req, res);
+    });
+    web_server.Delete(R"(/api/v1/slot-cache/(.+))", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slot_cache_clean_model(req, res);
+    });
+    web_server.Delete(R"(/v0/slot-cache/(.+))", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slot_cache_clean_model(req, res);
+    });
+    web_server.Delete(R"(/v1/slot-cache/(.+))", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slot_cache_clean_model(req, res);
     });
 
     register_post("params", [this](const httplib::Request& req, httplib::Response& res) {
@@ -6090,6 +6133,11 @@ void Server::handle_delete(const httplib::Request& req, httplib::Response& res) 
             try {
                 model_manager_->delete_model(model_name);
 
+                // Also delete the slot cache for this model to prevent orphaned cache
+                if (auto* cache_mgr = router_->get_slot_cache_manager()) {
+                    cache_mgr->delete_model_cache(model_name);
+                }
+
                 // Success - send response and return
                 nlohmann::json response = {
                     {"status", "success"},
@@ -6137,6 +6185,58 @@ void Server::handle_delete(const httplib::Request& req, httplib::Response& res) 
     }
 }
 
+void Server::handle_delete_model_cache(const httplib::Request& req, httplib::Response& res) {
+    try {
+        // Extract model name from URL path
+        std::string model_name = req.matches[1];
+        
+        if (model_name.empty()) {
+            res.status = 400;
+            nlohmann::json error = {{"error", "Model name is required"}};
+            res.set_content(error.dump(), "application/json");
+            return;
+        }
+
+        LOG(INFO, "Server") << "Deleting cache for model: " << model_name << std::endl;
+
+        // Use the configured slot_cache_dir + sanitized model name (same logic as
+        // LlamaCppServer::get_cache_dir and SlotCacheManager::delete_model_cache)
+        std::string safe_model_name = model_name;
+        size_t pos = 0;
+        while ((pos = safe_model_name.find('/', pos)) != std::string::npos) {
+            safe_model_name.replace(pos, 1, "_");
+            pos += 1;
+        }
+        std::string cache_dir = config_->slot_cache_dir() + "/" + safe_model_name;
+        
+        // Check if cache directory exists
+        if (!std::filesystem::exists(cache_dir)) {
+            res.status = 404;
+            nlohmann::json error = {{"error", "Cache not found for model: " + model_name}};
+            res.set_content(error.dump(), "application/json");
+            return;
+        }
+
+        // Delete the cache directory recursively
+        std::filesystem::remove_all(cache_dir);
+        
+        LOG(INFO, "Server") << "Successfully deleted cache for model: " << model_name << std::endl;
+
+        // Success response
+        nlohmann::json response = {
+            {"status", "success"},
+            {"message", "Deleted cache for model: " + model_name}
+        };
+        res.set_content(response.dump(), "application/json");
+
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Server") << "ERROR in handle_delete_model_cache: " << e.what() << std::endl;
+        res.status = 500;
+        nlohmann::json error = {{"error", e.what()}};
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
 void Server::handle_cleanup_cache(const httplib::Request& req, httplib::Response& res) {
     try {
         auto request_json = nlohmann::json::parse(req.body);
@@ -6149,6 +6249,102 @@ void Server::handle_cleanup_cache(const httplib::Request& req, httplib::Response
         res.status = 500;
         auto error_response = create_model_error("", e.what());
         res.set_content(error_response.dump(), "application/json");
+    }
+}
+
+void Server::handle_slot_cache_inspect(const httplib::Request& req, httplib::Response& res) {
+    try {
+        auto* cache_mgr = router_->get_slot_cache_manager();
+        if (!cache_mgr) {
+            res.status = 404;
+            res.set_content(nlohmann::json{{"error", "Slot cache not configured"}}.dump(),
+                            "application/json");
+            return;
+        }
+        nlohmann::json result = cache_mgr->inspect_cache();
+        res.set_content(result.dump(), "application/json");
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Server") << "ERROR in handle_slot_cache_inspect: " << e.what() << std::endl;
+        res.status = 500;
+        res.set_content(nlohmann::json{{"error", e.what()}}.dump(), "application/json");
+    }
+}
+
+void Server::handle_slot_cache_clean(const httplib::Request& req, httplib::Response& res) {
+    try {
+        auto* cache_mgr = router_->get_slot_cache_manager();
+        if (!cache_mgr) {
+            res.status = 404;
+            res.set_content(nlohmann::json{{"error", "Slot cache not configured"}}.dump(),
+                            "application/json");
+            return;
+        }
+
+        nlohmann::json request_json;
+        if (!req.body.empty()) {
+            request_json = nlohmann::json::parse(req.body);
+        }
+        bool dry_run = request_json.value("dry_run", false);
+
+        double max_age = config_->slot_cache_max_age_seconds();
+        if (request_json.contains("max_age_seconds") && request_json["max_age_seconds"].is_number()) {
+            max_age = request_json["max_age_seconds"].get<double>();
+        }
+
+        double max_gb = config_->slot_cache_max_gb();
+        if (request_json.contains("max_gb") && request_json["max_gb"].is_number()) {
+            max_gb = request_json["max_gb"].get<double>();
+        }
+
+        auto age_result = cache_mgr->cleanup_by_age(max_age, dry_run);
+        auto size_result = cache_mgr->cleanup_by_size(max_gb, dry_run);
+
+        nlohmann::json response = {
+            {"dry_run", dry_run},
+            {"age_cleanup", {{"deleted_count", age_result.deleted_count},
+                             {"freed_bytes", age_result.freed_bytes},
+                             {"max_age_seconds", max_age}}},
+            {"size_cleanup", {{"deleted_count", size_result.deleted_count},
+                              {"freed_bytes", size_result.freed_bytes},
+                              {"max_gb", max_gb}}},
+            {"total_deleted", age_result.deleted_count + size_result.deleted_count},
+            {"total_freed_bytes", age_result.freed_bytes + size_result.freed_bytes}
+        };
+        res.set_content(response.dump(), "application/json");
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Server") << "ERROR in handle_slot_cache_clean: " << e.what() << std::endl;
+        res.status = 500;
+        res.set_content(nlohmann::json{{"error", e.what()}}.dump(), "application/json");
+    }
+}
+
+void Server::handle_slot_cache_clean_model(const httplib::Request& req, httplib::Response& res) {
+    try {
+        std::string model_name = req.matches[1];
+        if (model_name.empty()) {
+            res.status = 400;
+            res.set_content(nlohmann::json{{"error", "Model name is required"}}.dump(),
+                            "application/json");
+            return;
+        }
+
+        auto* cache_mgr = router_->get_slot_cache_manager();
+        if (!cache_mgr) {
+            res.status = 404;
+            res.set_content(nlohmann::json{{"error", "Slot cache not configured"}}.dump(),
+                            "application/json");
+            return;
+        }
+
+        cache_mgr->delete_model_cache(model_name);
+        LOG(INFO, "Server") << "Deleted slot cache for model: " << model_name << std::endl;
+        res.set_content(nlohmann::json{{"status", "success"},
+                                       {"message", "Deleted slot cache for: " + model_name}}.dump(),
+                        "application/json");
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Server") << "ERROR in handle_slot_cache_clean_model: " << e.what() << std::endl;
+        res.status = 500;
+        res.set_content(nlohmann::json{{"error", e.what()}}.dump(), "application/json");
     }
 }
 
@@ -6716,6 +6912,39 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
     // NPU Utilization
     double npu_percent = get_npu_utilization();
     stats["npu_percent"] = (npu_percent >= 0) ? nlohmann::json(npu_percent) : nlohmann::json();
+
+    // Slot cache stats
+    try {
+        std::string configured_cache_dir = config_->slot_cache_dir();
+        double cache_size_gb = 0.0;
+        double total_gb = 0.0;
+        
+        if (std::filesystem::exists(configured_cache_dir)) {
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(configured_cache_dir)) {
+                if (entry.is_regular_file()) {
+                    cache_size_gb += entry.file_size() / (1024.0 * 1024.0 * 1024.0);
+                }
+            }
+            std::filesystem::space_info space = std::filesystem::space(configured_cache_dir);
+            total_gb = space.capacity / (1024.0 * 1024.0 * 1024.0);
+        }
+        
+        stats["slot_cache_gb"] = cache_size_gb;
+        stats["disk_total_gb"] = total_gb;
+        
+        if (auto* cache_mgr = router_->get_slot_cache_manager()) {
+            stats["slot_cache_hits"] = cache_mgr->get_hits();
+            stats["slot_cache_misses"] = cache_mgr->get_misses();
+            stats["slot_cache_hit_rate"] = cache_mgr->get_hit_rate();
+            stats["slot_cache_avg_restore_ms"] = cache_mgr->get_avg_restore_time();
+            stats["slot_cache_saves"] = cache_mgr->get_saves();
+        }
+        
+    } catch (const std::exception& e) {
+        LOG(DEBUG, "Server") << "Could not calculate slot cache stats: " << e.what() << std::endl;
+        stats["slot_cache_gb"] = nlohmann::json();
+        stats["disk_total_gb"] = nlohmann::json();
+    }
 
     res.set_content(stats.dump(), "application/json");
 }

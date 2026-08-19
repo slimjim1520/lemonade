@@ -4,6 +4,8 @@
 #include <type_traits>
 #include <nlohmann/json.hpp>
 #include <httplib.h>
+#include <string>
+#include <vector>
 
 namespace lemon {
 
@@ -101,6 +103,13 @@ public:
     virtual ~ISlotsServer() = default;
     virtual json get_slots() = 0;
     virtual json slots_action(int slot_id, const std::string& action, const json& request_body) = 0;
+    virtual void register_slot_assignment(int slot_id, const std::string& context_key,
+                                          const std::vector<std::string>& prompt_blocks = {},
+                                          int words_per_block = 0) = 0;
+    virtual void unregister_slot_assignment(int slot_id) = 0;
+    virtual std::string get_slot_context_key(int slot_id) const = 0;
+    virtual int get_slot_context_version(int slot_id) const = 0;
+    virtual bool save_slot(int slot_id, const std::string& key, const std::string& cache_dir) = 0;
 };
 
 class ITokenizerServer : public virtual ICapability {

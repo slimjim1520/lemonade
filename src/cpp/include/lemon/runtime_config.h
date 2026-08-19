@@ -35,6 +35,10 @@ public:
     long global_timeout() const;
     int max_loaded_models() const;
     std::string models_dir() const;
+    std::string slot_cache_dir() const;
+    double slot_cache_max_age_seconds() const;
+    double slot_cache_max_gb() const;
+    double slot_cache_cleanup_interval_seconds() const;
     int ctx_size() const;
     bool auto_evict() const;
     double auto_evict_threshold_pct() const;

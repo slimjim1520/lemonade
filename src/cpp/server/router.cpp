@@ -10,6 +10,7 @@
 #include "lemon/backends/kokoro/kokoro_server.h"
 #include "lemon/backends/sdcpp/sdcpp_server.h"
 #include "lemon/backends/vllm/vllm_server.h"
+#include "lemon/slot_cache_manager.h"
 #include "lemon/server_capabilities.h"
 #include "lemon/streaming_proxy.h"
 #include "lemon/error_types.h"
@@ -68,6 +69,16 @@ Router::Router(RuntimeConfig* config, ModelManager* model_manager, BackendManage
     suspend_inhibitor_ = create_suspend_inhibitor();
     reclaim_executor_ = std::make_shared<RoutingHelperReclaimExecutor>(
         [this](const std::string& model_name) { reclaim_stale_helper_if_idle(model_name); });
+    slot_cache_manager_ = std::make_unique<SlotCacheManager>(config_->slot_cache_dir());
+
+    // Start periodic slot cache cleanup thread
+    double cleanup_interval = config_->slot_cache_cleanup_interval_seconds();
+    if (cleanup_interval > 0 && slot_cache_manager_) {
+        slot_cache_manager_->start_cleanup_thread(
+            cleanup_interval,
+            [this]() { return config_->slot_cache_max_age_seconds(); },
+            [this]() { return config_->slot_cache_max_gb(); });
+    }
 
     // Always start the monitor/engine threads; they are cheap no-ops until the
     // user opts in. The monitor skips the VRAM poll when auto_evict is disabled,
@@ -82,6 +93,7 @@ Router::~Router() {
     LOG(DEBUG, "Router") << "Destructor: stopping monitors and unloading all models" << std::endl;
     if (eviction_engine_) eviction_engine_->stop();
     if (vram_monitor_) vram_monitor_->stop();
+    if (slot_cache_manager_) slot_cache_manager_->stop_cleanup_thread();
     // Wake any reclaim task blocked waiting for the residency slot, then join the
     // executor before we tear down the state its tasks touch.
     {
@@ -661,6 +673,7 @@ std::unique_ptr<WrappedServer> Router::create_backend_server(const ModelInfo& mo
     ctx.model_manager = model_manager_;
     ctx.backend_manager = backend_manager_;
     ctx.cloud_registry = cloud_registry_;
+    ctx.slot_cache_manager = slot_cache_manager_.get();
     ctx.model_info = &model_info;
 
     // The backend registry binds each recipe to its create() (see LEMON_BACKENDS).
@@ -1691,6 +1704,7 @@ json Router::chat_completion(const json& request, std::atomic<bool>* cancel) {
                 if (request.contains("max_tokens")) span->set_attribute("llm.config.max_tokens", request["max_tokens"]);
                 if (request.contains("max_completion_tokens")) span->set_attribute("llm.config.max_completion_tokens", request["max_completion_tokens"]);
             }
+            
             return server->chat_completion(request);
         });
 

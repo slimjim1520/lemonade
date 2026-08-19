@@ -181,7 +181,11 @@ private:
     void handle_unload(const httplib::Request& req, httplib::Response& res);
     void handle_pin(const httplib::Request& req, httplib::Response& res);
     void handle_delete(const httplib::Request& req, httplib::Response& res);
+    void handle_delete_model_cache(const httplib::Request& req, httplib::Response& res);
     void handle_cleanup_cache(const httplib::Request& req, httplib::Response& res);
+    void handle_slot_cache_inspect(const httplib::Request& req, httplib::Response& res);
+    void handle_slot_cache_clean(const httplib::Request& req, httplib::Response& res);
+    void handle_slot_cache_clean_model(const httplib::Request& req, httplib::Response& res);
     void handle_aliases_get(const httplib::Request& req, httplib::Response& res);
     void handle_aliases_add(const httplib::Request& req, httplib::Response& res);
     void handle_aliases_remove(const httplib::Request& req, httplib::Response& res);

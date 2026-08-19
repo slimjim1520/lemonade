@@ -1648,7 +1648,9 @@ const [searchQuery, setSearchQuery] = useState('');
       setLoadingModels(prev => new Set(prev).add(modelName));
       window.dispatchEvent(new CustomEvent('modelLoadStart', { detail: { modelId: modelName } }));
 
-      const loadBody = options ? recipeOptionsToApi(options) : undefined;
+      const loadBody = options
+        ? { ...recipeOptionsToApi(options), save_options: true }
+        : undefined;
 
       await ensureModelReady(modelName, modelsData, {
         onModelLoading: () => {}, // already set loading above

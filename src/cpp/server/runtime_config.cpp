@@ -344,6 +344,39 @@ std::string RuntimeConfig::models_dir() const {
     return config_["models_dir"].get<std::string>();
 }
 
+std::string RuntimeConfig::slot_cache_dir() const {
+    std::shared_lock lock(mutex_);
+    if (config_.contains("slot_cache_dir") && !config_["slot_cache_dir"].is_null()) {
+        return config_["slot_cache_dir"].get<std::string>();
+    }
+    // Default to models_dir/slot_cache
+    return models_dir() + "/slot_cache";
+}
+
+double RuntimeConfig::slot_cache_max_age_seconds() const {
+    std::shared_lock lock(mutex_);
+    if (config_.contains("slot_cache_max_age_seconds") && config_["slot_cache_max_age_seconds"].is_number()) {
+        return config_["slot_cache_max_age_seconds"].get<double>();
+    }
+    return 604800.0;  // 7 days
+}
+
+double RuntimeConfig::slot_cache_max_gb() const {
+    std::shared_lock lock(mutex_);
+    if (config_.contains("slot_cache_max_gb") && config_["slot_cache_max_gb"].is_number()) {
+        return config_["slot_cache_max_gb"].get<double>();
+    }
+    return 0.0;  // disabled
+}
+
+double RuntimeConfig::slot_cache_cleanup_interval_seconds() const {
+    std::shared_lock lock(mutex_);
+    if (config_.contains("slot_cache_cleanup_interval_seconds") && config_["slot_cache_cleanup_interval_seconds"].is_number()) {
+        return config_["slot_cache_cleanup_interval_seconds"].get<double>();
+    }
+    return 300.0;  // 5 minutes
+}
+
 int RuntimeConfig::ctx_size() const {
     std::shared_lock lock(mutex_);
     return config_["ctx_size"].get<int>();
@@ -651,12 +684,20 @@ void RuntimeConfig::validate(const std::string& key, const json& value) const {
             throw std::invalid_argument(
                 "'log_level' must be one of: trace, debug, info, warning, error, fatal, none");
         }
-    } else if (key == "extra_models_dir" || key == "models_dir") {
+    } else if (key == "extra_models_dir" || key == "models_dir" || key == "slot_cache_dir") {
         if (!value.is_string()) {
             throw std::invalid_argument("'" + key + "' must be a string");
         }
         if (key == "extra_models_dir") {
             validate_extra_models_dir_access(value.get<std::string>());
+        }
+    } else if (key == "slot_cache_max_age_seconds" || key == "slot_cache_max_gb" ||
+               key == "slot_cache_cleanup_interval_seconds") {
+        if (!value.is_number()) {
+            throw std::invalid_argument("'" + key + "' must be a number");
+        }
+        if (value.get<double>() < 0) {
+            throw std::invalid_argument("'" + key + "' must be non-negative");
         }
     } else if (key == "default_model_source") {
         if (!value.is_string()) {

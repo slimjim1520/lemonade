@@ -553,7 +553,8 @@ void VLLMServer::forward_streaming_request(const std::string& endpoint,
                                            httplib::DataSink& sink,
                                            bool sse,
                                            long timeout_seconds,
-                                           TelemetryCallback telemetry_callback) {
+                                           TelemetryCallback telemetry_callback,
+                                           std::function<void()> on_stream_complete) {
     std::string body = request_body;
     const auto start = std::chrono::steady_clock::now();
 
@@ -579,7 +580,8 @@ void VLLMServer::forward_streaming_request(const std::string& endpoint,
         [&telemetry, &has_telemetry](const StreamingProxy::TelemetryData& reported) {
             has_telemetry = true;
             telemetry = reported;
-        });
+        },
+        on_stream_complete);
 
     if (has_telemetry) {
         if (sse && telemetry.output_tokens > 0 && telemetry.tokens_per_second <= 0.0) {

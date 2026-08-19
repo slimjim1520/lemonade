@@ -39,6 +39,11 @@ export interface LlamaOptions {
   mergeArgs: BooleanOption;
   pinned: BooleanOption;
   saveOptions: BooleanOption;
+  slotCacheEnabled: BooleanOption;
+  slotCacheRam: NumericOption;
+  slotCacheLcpThreshold: NumericOption;
+  slotCacheWordThreshold: NumericOption;
+  slotCacheWordsPerBlock: NumericOption;
 }
 
 export interface WhisperOptions {
@@ -214,6 +219,48 @@ export const OPTION_DEFINITIONS: Record<string, OptionDef> = {
     label: 'LlamaCpp Arguments',
     description: 'Custom arguments to pass to llama-server',
   },
+  slotCacheEnabled: {
+    type: 'boolean',
+    default: false,
+    label: 'Enable Slot Cache',
+    description: 'Enable context caching for this model using llama.cpp slots',
+  },
+  slotCacheRam: {
+    type: 'numeric',
+    default: 8192,
+    min: 0,
+    max: 65536,
+    step: 512,
+    label: 'Slot Cache RAM (MB)',
+    description: 'RAM to allocate for slot cache (0 = unlimited). Recommended: 8192 MB',
+  },
+  slotCacheLcpThreshold: {
+    type: 'numeric',
+    default: 0.85,
+    min: 0,
+    max: 1,
+    step: 0.05,
+    label: 'LCP Threshold',
+    description: 'Minimum similarity ratio (0-1) for cache restoration',
+  },
+  slotCacheWordThreshold: {
+    type: 'numeric',
+    default: 500,
+    min: 100,
+    max: 2000,
+    step: 50,
+    label: 'Word Threshold',
+    description: 'Only cache requests with more than this many words',
+  },
+  slotCacheWordsPerBlock: {
+    type: 'numeric',
+    default: 100,
+    min: 50,
+    max: 500,
+    step: 50,
+    label: 'Words Per Block',
+    description: 'Number of words per LCP block for similarity matching',
+  },
 
   // vLLM-specific options
   vllmBackend: {
@@ -363,7 +410,7 @@ export type RecipeName = 'llamacpp' | 'whispercpp' | 'moonshine' | 'flm' | 'ryze
  * This mirrors the C++ get_keys_for_recipe() function in recipe_options.cpp
  */
 export const RECIPE_OPTIONS_MAP: Record<RecipeName, string[]> = {
-  'llamacpp': ['ctxSize', 'llamacppBackend', 'llamacppArgs', 'mergeArgs', 'pinned', 'saveOptions'],
+  'llamacpp': ['ctxSize', 'llamacppBackend', 'llamacppArgs', 'mergeArgs', 'pinned', 'saveOptions', 'slotCacheEnabled', 'slotCacheRam', 'slotCacheLcpThreshold', 'slotCacheWordThreshold', 'slotCacheWordsPerBlock'],
   'whispercpp': ['whispercppBackend', 'whispercppArgs', 'mergeArgs', 'pinned', 'saveOptions'],
   'moonshine': ['moonshineArgs', 'mergeArgs', 'pinned', 'saveOptions'],
   'flm': ['ctxSize', 'mergeArgs', 'pinned', 'saveOptions'],
@@ -414,6 +461,11 @@ const FRONTEND_TO_API_MAP: Record<string, string> = {
   vllmBackend: 'vllm_backend',
   vllmArgs: 'vllm_args',
   saveOptions: 'save_options',
+  slotCacheEnabled: 'slot_cache_enabled',
+  slotCacheRam: 'slot_cache_ram',
+  slotCacheLcpThreshold: 'lcp_threshold',
+  slotCacheWordThreshold: 'big_request_word_threshold',
+  slotCacheWordsPerBlock: 'words_per_block',
 };
 
 const API_TO_FRONTEND_MAP: Record<string, string> = Object.fromEntries(

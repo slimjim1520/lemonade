@@ -86,8 +86,9 @@ void StreamingProxy::forward_sse_stream(
     httplib::DataSink& sink,
     std::function<void(const TelemetryData&)> on_complete,
     long timeout_seconds,
-    std::function<void()> on_chunk) {
-
+    std::function<void()> on_chunk,
+    std::function<void()> on_stream_complete) {
+    
     TelemetryData telemetry;
     try {
         auto req_json = json::parse(request_body);
@@ -183,6 +184,10 @@ void StreamingProxy::forward_sse_stream(
                 // some bytes may even have reached the client, but the SSE protocol never
                 // completed. Do not synthesize [DONE], because that hides backend crashes
                 // from the router and leaves stale loaded-model state behind.
+                // Fire on_stream_complete here in case of transport interrupt
+                if (on_stream_complete) {
+                    on_stream_complete();
+                }
                 throw std::runtime_error(
                     "backend connection failed during SSE stream before DONE: CURL error: " +
                     result.curl_error);
@@ -264,10 +269,19 @@ void StreamingProxy::forward_sse_stream(
         if (on_complete) {
             on_complete(telemetry);
         }
+        
+        // Fire on_stream_complete for successful completion
+        if (on_stream_complete) {
+            on_stream_complete();
+        }
     } else {
         sink.done();
         if (on_complete) {
             on_complete(telemetry);
+        }
+        // Fire on_stream_complete for error completion
+        if (on_stream_complete) {
+            on_stream_complete();
         }
     }
 }

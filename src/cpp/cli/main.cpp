@@ -198,6 +198,11 @@ struct CliConfig {
 
     // Bench command options
     lemon_cli::BenchCliOptions bench;
+
+    // Slot cache options
+    std::string slot_cache_model;
+    double slot_cache_max_age = -1;
+    double slot_cache_max_gb = -1;
 };
 
 // Read a line from stdin with terminal echo disabled, so secrets (API keys,
@@ -1288,6 +1293,9 @@ int main(int argc, char* argv[]) {
     CLI::App* import_cmd = app.add_subcommand("import", "Import a model from JSON file")->group("Model management");
     CLI::App* export_cmd = app.add_subcommand("export", "Export model information to JSON")->group("Model management");
     CLI::App* cleanup_cmd = app.add_subcommand("cleanup-cache", "Clean up orphaned files in the model hub cache")->group("Model management");
+    CLI::App* slot_cache_cmd = app.add_subcommand("slot-cache", "Manage slot context cache")->group("Model management");
+    CLI::App* slot_cache_list_cmd = slot_cache_cmd->add_subcommand("list", "List slot cache contents");
+    CLI::App* slot_cache_clean_cmd = slot_cache_cmd->add_subcommand("clean", "Clean up slot cache by age and/or size");
 
     // List options
     list_cmd->add_flag("--downloaded", config.downloaded, "Show only downloaded models");
@@ -1467,6 +1475,12 @@ int main(int argc, char* argv[]) {
 
     // Cleanup cache options
     cleanup_cmd->add_flag("--dry-run", config.dry_run, "Preview what would be cleaned up without deleting");
+
+    // Slot cache options
+    slot_cache_clean_cmd->add_flag("--dry-run", config.dry_run, "Preview what would be cleaned up without deleting");
+    slot_cache_clean_cmd->add_option("--model", config.slot_cache_model, "Clean cache for a specific model only");
+    slot_cache_clean_cmd->add_option("--max-age", config.slot_cache_max_age, "Max age in seconds (overrides config)");
+    slot_cache_clean_cmd->add_option("--max-gb", config.slot_cache_max_gb, "Max cache size in GB (overrides config)");
 
     // Bench command
     CLI::App* bench_cmd = lemon_cli::register_bench_command(app, config.output_file, config.bench);
@@ -1677,6 +1691,15 @@ int main(int argc, char* argv[]) {
         return handle_config_view(client);
     } else if (cleanup_cmd->count() > 0) {
         return client.cleanup_cache(config.dry_run);
+    } else if (slot_cache_cmd->count() > 0) {
+        if (slot_cache_list_cmd->count() > 0) {
+            return client.slot_cache_list();
+        } else if (slot_cache_clean_cmd->count() > 0) {
+            return client.slot_cache_clean(config.dry_run, config.slot_cache_model,
+                                           config.slot_cache_max_age, config.slot_cache_max_gb);
+        }
+        std::cerr << slot_cache_cmd->help() << std::endl;
+        return 1;
     } else if (bench_cmd->count() > 0) {
         auto bench_config = lemon_cli::build_bench_config(config.output_file, config.bench);
         return lemon_cli::handle_bench_command(client, bench_config);

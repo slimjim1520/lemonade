@@ -877,6 +877,97 @@ int LemonadeClient::cleanup_cache(bool dry_run) const {
     }
 }
 
+int LemonadeClient::slot_cache_list() const {
+    try {
+        std::string response = make_request("/v1/slot-cache", "GET", "", "application/json", 30, 300);
+        auto result = json::parse(response);
+
+        if (result.contains("error")) {
+            std::cerr << "Error: " << result["error"].value("message", result["error"].get<std::string>()) << std::endl;
+            return 1;
+        }
+
+        auto models = result.value("models", json::array());
+        size_t total_bytes = result.value("total_bytes", 0);
+        size_t total_entries = result.value("total_entries", 0);
+
+        if (models.empty()) {
+            std::cout << "Slot cache is empty." << std::endl;
+            return 0;
+        }
+
+        for (const auto& model : models) {
+            std::string model_id = model.value("model_id", "");
+            size_t model_bytes = model.value("total_bytes", 0);
+            int entry_count = model.value("entry_count", 0);
+            double model_mb = model_bytes / (1024.0 * 1024.0);
+            std::cout << "  " << model_id << " (" << entry_count << " entries, "
+                      << std::fixed << std::setprecision(1) << model_mb << " MB)" << std::endl;
+        }
+
+        double total_mb = total_bytes / (1024.0 * 1024.0);
+        std::cout << "\nTotal: " << total_entries << " entries, "
+                  << std::fixed << std::setprecision(1) << total_mb << " MB" << std::endl;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+}
+
+int LemonadeClient::slot_cache_clean(bool dry_run, const std::string& model,
+                                      double max_age, double max_gb) const {
+    try {
+        if (!model.empty()) {
+            std::cout << (dry_run ? "Previewing" : "Running") << " slot cache cleanup for model: "
+                      << model << std::endl;
+            std::string response = make_request("/v1/slot-cache/" + model, "DELETE",
+                                                 "", "application/json", 30, 300);
+            auto result = json::parse(response);
+            if (result.contains("error")) {
+                std::cerr << "Error: " << result["error"].value("message", result["error"].get<std::string>()) << std::endl;
+                return 1;
+            }
+            std::cout << result.value("message", "Done") << std::endl;
+            return 0;
+        }
+
+        std::cout << (dry_run ? "Previewing" : "Running") << " slot cache cleanup..." << std::endl;
+        json request_body = {{"dry_run", dry_run}};
+        if (max_age >= 0) request_body["max_age_seconds"] = max_age;
+        if (max_gb >= 0) request_body["max_gb"] = max_gb;
+
+        std::string response = make_request("/v1/slot-cache", "POST",
+                                             request_body.dump(), "application/json", 30, 300);
+        auto result = json::parse(response);
+
+        if (result.contains("error")) {
+            std::cerr << "Error: " << result["error"].value("message", result["error"].get<std::string>()) << std::endl;
+            return 1;
+        }
+
+        size_t total_deleted = result.value("total_deleted", 0);
+        size_t total_freed = result.value("total_freed_bytes", 0);
+        double freed_mb = total_freed / (1024.0 * 1024.0);
+
+        if (total_deleted == 0) {
+            std::cout << "No entries to clean." << std::endl;
+        } else {
+            if (dry_run) {
+                std::cout << "Would delete " << total_deleted << " entries ("
+                          << std::fixed << std::setprecision(1) << freed_mb << " MB)" << std::endl;
+            } else {
+                std::cout << "Deleted " << total_deleted << " entries ("
+                          << std::fixed << std::setprecision(1) << freed_mb << " MB)" << std::endl;
+            }
+        }
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+}
+
 int LemonadeClient::load_model(const std::string& model_name, const nlohmann::json& recipe_options, bool save_options, std::optional<bool> pinned) const {
     std::cout << "Loading model: " << model_name << std::endl;
 

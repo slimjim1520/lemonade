@@ -31,6 +31,7 @@ namespace lemon {
 using json = nlohmann::json;
 
 class CloudProviderRegistry;
+class SlotCacheManager;
 
 // Single-thread executor that runs routing-helper reclaim tasks off the request
 // / maintenance threads that trigger them. Owned by Router as a shared_ptr so a
@@ -139,6 +140,9 @@ public:
     // CloudServer instances with a credential source. Pointer (not
     // ownership) — Server owns the registry.
     void set_cloud_registry(CloudProviderRegistry* registry);
+    
+    // Accessor for slot cache manager (for stats)
+    SlotCacheManager* get_slot_cache_manager() { return slot_cache_manager_.get(); }
 
     // allow_reload_on_option_change: intended for explicit /load callers only.
     // Auto-load callers (inference-triggered) should leave this false so they
@@ -324,6 +328,7 @@ private:
     // threads. shared_ptr so a scheduled task holds a weak_ptr and no-ops if the
     // router is gone; stop()ped and joined in ~Router before state teardown.
     std::shared_ptr<RoutingHelperReclaimExecutor> reclaim_executor_;
+    std::unique_ptr<SlotCacheManager> slot_cache_manager_;
 
     // Helper methods for multi-model management
     WrappedServer* find_server_by_model_name(const std::string& model_name) const;

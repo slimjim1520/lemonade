@@ -758,7 +758,8 @@ void WrappedServer::forward_streaming_request(const std::string& endpoint,
                                               httplib::DataSink& sink,
                                               bool sse,
                                               long timeout_seconds,
-                                              TelemetryCallback telemetry_callback) {
+                                              TelemetryCallback telemetry_callback,
+                                              std::function<void()> on_stream_complete) {
     if (!is_backend_alive()) {
         if (was_watchdog_triggered() || has_backend_process_exited()) {
             if (!was_watchdog_triggered()) {
@@ -768,11 +769,14 @@ void WrappedServer::forward_streaming_request(const std::string& endpoint,
         }
 
         json error = ErrorResponse::from_exception(ModelNotLoadedException(server_name_));
-        std::string error_msg = "data: " + error.dump() + "\n\n";
-        sink.write(error_msg.c_str(), error_msg.size());
-        sink.done();
-        return;
-    }
+            std::string error_msg = "data: " + error.dump() + "\n\n";
+            sink.write(error_msg.c_str(), error_msg.size());
+            sink.done();
+            if (on_stream_complete) {
+                on_stream_complete();
+            }
+            return;
+        }
 
     BackendRequestScope request_scope(*this, BackendRequestKind::Streaming);
 
@@ -798,12 +802,16 @@ void WrappedServer::forward_streaming_request(const std::string& endpoint,
                     }
                 },
                 timeout_seconds,
-                mark_stream_progress
+                mark_stream_progress,
+                on_stream_complete
             );
         } else {
             StreamingProxy::forward_byte_stream(url, request_body, sink, timeout_seconds,
                 mark_stream_progress
             );
+            if (on_stream_complete) {
+                on_stream_complete();
+            }
         }
     } catch (const std::exception& e) {
         // Log the error but don't crash the server
@@ -843,10 +851,16 @@ void WrappedServer::forward_streaming_request(const std::string& endpoint,
             std::string error_msg = "data: " + error.dump() + "\n\n";
             sink.write(error_msg.c_str(), error_msg.size());
             sink.done();
+            if (on_stream_complete) {
+                on_stream_complete();
+            }
         } catch (const BackendStreamRetryableReset&) {
             throw;
         } catch (...) {
             // Sink might be closed, ignore
+            if (on_stream_complete) {
+                on_stream_complete();
+            }
         }
     }
 }

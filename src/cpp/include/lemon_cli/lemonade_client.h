@@ -124,6 +124,9 @@ public:
 
     // Cache management
     int cleanup_cache(bool dry_run) const;
+    int slot_cache_list() const;
+    int slot_cache_clean(bool dry_run, const std::string& model,
+                         double max_age, double max_gb) const;
 
     // Utility (timeouts are in milliseconds)
     std::string make_request(const std::string& path, const std::string& method = "GET",

@@ -961,6 +961,8 @@ set(SOURCES_CORE
     src/cpp/server/hf_variants.cpp
     src/cpp/server/wrapped_server.cpp
     src/cpp/server/streaming_proxy.cpp
+    src/cpp/server/slot_cache_manager.cpp
+    src/cpp/server/slot_cache_guard.cpp
     src/cpp/server/system_info.cpp
     src/cpp/server/recipe_options.cpp
     src/cpp/server/routing_classifier_services.cpp
