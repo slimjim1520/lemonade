@@ -787,6 +787,16 @@ bool LlamaCppServer::downsize() {
     // Save all active slots to disk cache before eviction (proxycache-style)
     save_active_slots_to_cache();
     
+    // Clear slot context map after saving - slots are erased from llama-server
+    // so unload() won't try to save again (which would corrupt the cache files)
+    {
+        std::lock_guard<std::mutex> lock(slot_map_mutex_);
+        slot_context_map_.clear();
+        slot_context_versions_.clear();
+        slot_prompt_blocks_.clear();
+        slot_wpb_.clear();
+    }
+    
     // Proceed with normal downsize (erase slots)
     try {
         json slots = get_slots();
