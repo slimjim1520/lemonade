@@ -1006,8 +1006,21 @@ json LlamaCppServer::chat_completion(const json& request) {
                 
                 modified_request["id_slot"] = slot_id;
                 modified_request["slot_id"] = slot_id;
-                modified_request["cache_prompt"] = true;
-                modified_request["n_keep"] = -1;
+                
+                // Only set cache_prompt on cache HITS - tells llama-server to reuse
+                // the restored KV cache instead of reprocessing all tokens
+                if (!restore_key.empty() && ratio >= lcp_threshold) {
+                    modified_request["cache_prompt"] = true;
+                    modified_request["n_keep"] = -1;
+                    // Also set in options object (llama-server checks both locations)
+                    if (!modified_request.contains("options")) {
+                        modified_request["options"] = json::object();
+                    }
+                    modified_request["options"]["cache_prompt"] = true;
+                    modified_request["options"]["n_keep"] = -1;
+                    modified_request["options"]["id_slot"] = slot_id;
+                    modified_request["options"]["slot_id"] = slot_id;
+                }
             }
         }
     }
@@ -1301,8 +1314,21 @@ void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
                         
                         request["id_slot"] = slot_id;
                         request["slot_id"] = slot_id;
-                        request["cache_prompt"] = true;
-                        request["n_keep"] = -1;
+                        
+                        // Only set cache_prompt on cache HITS - tells llama-server to reuse
+                        // the restored KV cache instead of reprocessing all tokens
+                        if (!restore_key.empty() && ratio >= lcp_threshold) {
+                            request["cache_prompt"] = true;
+                            request["n_keep"] = -1;
+                            // Also set in options object (llama-server checks both locations)
+                            if (!request.contains("options")) {
+                                request["options"] = json::object();
+                            }
+                            request["options"]["cache_prompt"] = true;
+                            request["options"]["n_keep"] = -1;
+                            request["options"]["id_slot"] = slot_id;
+                            request["options"]["slot_id"] = slot_id;
+                        }
                         
                         // Create SlotSaveGuard for automatic save on stream completion.
                         // Always save when slot caching is enabled so the meta file
