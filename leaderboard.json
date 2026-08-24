@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-08-24T02:58:05.635672+00:00",
+  "run_id": "32326511831",
+  "run_url": "https://github.com/slimjim1520/lemonade/actions/runs/32326511831",
+  "repo": "slimjim1520/lemonade",
+  "repo_url": "https://github.com/slimjim1520/lemonade",
+  "actions_url": "https://github.com/slimjim1520/lemonade/actions/workflows/benchmark-regression.yml",
+  "commit": "9334d4f5acd8866b87ea154a056bc76c62a1398d",
+  "lemonade_version": null,
+  "by_model_scenario": {},
+  "history": {}
+}
